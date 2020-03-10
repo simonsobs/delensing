@@ -1,11 +1,8 @@
-#* Linear template delensing
-
 # load modules
 import numpy as np
 import basic
 import pickle
 import curvedsky
-
 
 # noise spectra
 def gen_noise_spec(lmax,rlTmax=3000,dd='../../data/forecast/',deproj=0,sens=2,Fsky='0p4',Tcmb=2.726e6):
@@ -24,7 +21,8 @@ def gen_noise_spec(lmax,rlTmax=3000,dd='../../data/forecast/',deproj=0,sens=2,Fs
     return nl/Tcmb**2
 
 
-D = '../../data/sodelens/20190707_test/'
+Dir = '/project/projectdirs/sobs/delensing/'
+D = Dir + '20190707_test/'
 
 # define parameters
 Tcmb = 2.726e6    # CMB temperature
@@ -42,8 +40,8 @@ phirandom = False
 qlist = ['TT','EE','EB','MV']
 
 # load unlensed, lensed, noise Cls
-ucl = basic.aps.read_cambcls('../../data/cls/ffp10_scalCls.dat',2,clmax,5)/Tcmb**2
-lcl = basic.aps.read_cambcls('../../data/cls/ffp10_lensedCls.dat',2,clmax,4,bb=True)/Tcmb**2
+ucl = basic.aps.read_cambcls(Dir+'cls/ffp10_scalCls.dat',2,clmax,5)/Tcmb**2
+lcl = basic.aps.read_cambcls(Dir+'cls/ffp10_lensedCls.dat',2,clmax,4,bb=True)/Tcmb**2
 nl  = gen_noise_spec(lmax)
 ocl = lcl[:,:lmax+1] + nl
 
@@ -149,10 +147,8 @@ for i in range(mcnum):
         Wl[q] = np.zeros(lmax+1)
         for l in range(dlmin,dlmax+1):
             Wl[q][l] = ucl[3,l]/(ucl[3,l]+Ag[q][l])
-            #Wl[q][l] = ucl[3,l]/(rls[i,qi,l])
         wplm = rplm[q]*Wl[q][:,None]
         blm  = curvedsky.delens.lensingb(lmax,dlmin,dlmax,dlmin,dlmax,Erlm[:dlmax+1,:dlmax+1],wplm[:dlmax+1,:dlmax+1])
-        #blm0 = curvedsky.delens.lensingb(lmax,dlmin,dlmax,dlmin,dlmax,Erlm[:dlmax+1,:dlmax+1],plm[:dlmax+1,:dlmax+1],nside=3000)
         # aps
         dls[i,2*qi,:]   = curvedsky.utils.alm2cl(lmax,blm)
         dls[i,2*qi+1,:] = curvedsky.utils.alm2cl(lmax,Brlm-blm)
@@ -166,6 +162,5 @@ if phirandom:
     np.savetxt(D+'resbb_random.dat',np.concatenate((L[None,:],np.mean(dls,axis=0))).T)
 else:
     np.savetxt(D+'resbb.dat',np.concatenate((L[None,:],np.mean(dls,axis=0))).T)
-    #np.savetxt(D+'resbb_wiener.dat',np.concatenate((L[None,:],np.mean(cls,axis=0))).T)
 
 
