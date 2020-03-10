@@ -6,55 +6,64 @@ import sys
 import configparser
 import constants
 import cmb as CMB
-import quad_class
+import quad_func
+
 
 # Define parameters
-# params associated with telescope
-# params for analysis
 class params:
 
-    def __init__(self,t='',freq='',ntype='base'):
+    def __init__(self,t='la',freq='145',ntype='base',lmin=0,lmax=3000,snmin=1,snmax=10,dlmin=20,dlmax=2048):
 
         #//// load config file ////#
         config = configparser.ConfigParser()
-        print('reading '+sys.argv[1])
-        config.read(sys.argv[1])
-        conf = config['DEFAULT']
+        if np.size(sys.argv) > 1 and '.ini' in sys.argv[1]:
+            print('reading '+sys.argv[1])
+            config.read(sys.argv[1])
+        else:
+            # default values for [QUADREC]
+            config.add_section('QUADREC')
+            config.set('QUADREC','oLmin','1')
+            config.set('QUADREC','oLmax','2048')
+            config.set('QUADREC','bn','30')
+            config.set('QUADREC','binspc','p2')
+            config.set('QUADREC','nside','2048')
+            config.set('QUADREC','qtype','lens')
+            config.set('QUADREC','rlmin','500')
+            config.set('QUADREC','rlmax','3000')
+            config.set('QUADREC','n0min','1')
+            config.set('QUADREC','n0max','4')
+            config.set('QUADREC','rdmin','1')
+            config.set('QUADREC','rdmax','100')
+            config.set('QUADREC','mfmin','1')
+            config.set('QUADREC','mfmax','9')
 
         #//// get parameters ////#
-        self.lmin   = conf.getint('lmin',0)
-        self.lmax   = conf.getint('lmax',3000)
+        conf = config['DEFAULT']
+        self.lmin   = conf.getint('lmin',lmin)
+        self.lmax   = conf.getint('lmax',lmax)
         self.olmin  = conf.getint('olmin',2)
         self.olmax  = conf.getint('olmax',3000)
         self.bn     = conf.getint('bn',30) 
         self.binspc = conf.get('binspc','')
-        self.snmin  = conf.getint('snmin',0)
-        self.snmax  = conf.getint('snmax',1)
+        self.snmin  = conf.getint('snmin',snmin)
+        self.snmax  = conf.getint('snmax',snmax)
         self.doreal = conf.getboolean('doreal',False)
-        self.telescope = conf.get('telescope','la')
-        if t!='': self.telescope = t
+        self.telescope = conf.get('telescope',t)
         self.ascale = conf.getfloat('ascale',0.)
 
-        self.freq   = conf.get('freq','145')
-        if freq!='': self.freq = freq
+        self.freq   = conf.get('freq',freq)
         if self.telescope=='id': self.freq = '145'
 
         self.ntype = 'base'
 
         # reconstruction
-        self.qtype  = conf.get('qtype','lens')
-        self.nsidet = conf.getint('nsidet',2048)
-        self.rlmin  = conf.getint('rlmin',500)
-        self.rlmax  = conf.getint('rlmax',3000)
-        self.snn0   = conf.getint('snn0',50)
-        self.snrd   = conf.getint('snrd',100)
-        self.snmf   = conf.getint('snmf',100)
+        self.quad  = quad_func.quad(config['QUADREC'])
 
         # delensing
         self.nsided  = 2048       #remapping nside for delensed map
         self.npixd   = 12*self.nsided**2
-        self.dlmin   = conf.getint('dlmin',100)
-        self.dlmax   = conf.getint('dlmax','2048')
+        self.dlmin   = conf.getint('dlmin',dlmin)
+        self.dlmax   = conf.getint('dlmax',dlmax)
         self.nremap  = 3          #beta iteration for remapping
 
         #//// derived parameters ////#
@@ -63,24 +72,12 @@ class params:
         self.oL    = [self.olmin,self.olmax]
         self.dL    = [self.dlmin,self.dlmax]
 
-        #definition of T+P
-        self.qDO = [True,True,True,False,False,False]
-        self.qMV = ['TT','TE','EE']
-
-
-        #definition of qest
-        #self.qlist = ['TT','TE','EE','TB','EB','MV']
-        self.qlist = ['TT','TE','EE','TB','EB']
-        if self.qtype=='rot':
-            self.qlist = ['EB']
-
-        self.dmethod = ['lt','dl','re']
-
         # Map resolution
         if self.telescope=='sa':
             self.nside = 512
         else:
-            self.nside = 4096
+            #self.nside = 4096
+            self.nside = 2048
         self.npix = 12*self.nside**2
 
 
@@ -90,11 +87,11 @@ class cmb:
     def __init__(self,Dir,t,nside,freq,ascale,stag,otag,ids):
 
         #set directory
-        d_inp = '/project/projectdirs/sobs/v4_sims/mbs/201901_gaussian_fg_lensed_cmb_realistic_noise/'
-        d_alm = Dir+'cmb/alm/'
-        d_aps = Dir+'cmb/aps/'
-        d_map = Dir+'cmb/map/'
-        d_msk = '/project/projectdirs/sobs/delensing/mask/'
+        #d_inp = '/project/projectdirs/sobs/v4_sims/mbs/201901_gaussian_fg_lensed_cmb_realistic_noise/'
+        d_alm = Dir+'cmbsims/alm/'
+        d_aps = Dir+'cmbsims/aps/'
+        d_map = Dir+'cmbsims/map/'
+        d_msk = Dir+'mask/'
 
         #mask
         self.mask  = d_msk+t+'.fits'
@@ -115,9 +112,9 @@ class cmb:
         self.nalm = {}
         self.oalm = {}
         for m in constants.mtype:
-            self.salm[m]  = [d_alm+'/s_'+m+'_'+stag+'_'+x+'.fits' for x in ids]
-            self.nalm[m]  = [d_alm+'/n_'+m+'_'+stag+'_'+x+'.fits' for x in ids]
-            self.oalm[m]  = [d_alm+'/o_'+m+'_'+stag+'_'+x+'.fits' for x in ids]
+            self.salm[m]  = [d_alm+'/s_'+m+'_'+stag+'_'+x+'.pkl' for x in ids]
+            self.nalm[m]  = [d_alm+'/n_'+m+'_'+stag+'_'+x+'.pkl' for x in ids]
+            self.oalm[m]  = [d_alm+'/o_'+m+'_'+stag+'_'+x+'.pkl' for x in ids]
 
         #cmb aps
         self.scl = d_aps+'aps_sim_1d_'+stag+'.dat'
@@ -125,16 +122,12 @@ class cmb:
         self.ocl = d_aps+'aps_'+ids[0]+'_1d_'+stag+'.dat'
         self.ocb = d_aps+'aps_'+ids[0]+'_1d_'+stag+otag+'.dat'
 
-
-# filtered alms
-class almfilt:
-
-    def __init__(self,Dir,combtag,ids):
-
-        d_alm = Dir+'cmb/alm/'
-        self.walm = {}
+        # filtered combined map
+        self.walm = {} # wiener filtered alms
+        self.ialm = {} # cninv filtered alms
         for m in constants.mtype:
-            self.walm[m] = [d_alm+'/w_'+m+'_'+combtag+'_'+x+'.fits' for x in ids]
+            self.walm[m] = [d_alm+'/w_'+m+'_'+t+'coadd_'+x+'.pkl' for x in ids]
+            self.ialm[m] = [d_alm+'/i_'+m+'_'+t+'coadd_'+x+'.pkl' for x in ids]
 
 
 # * Define delensing filenames
@@ -143,8 +136,8 @@ class delensing:
     def __init__(self,Dir,dtag,otag,ids):
 
         #set directory
-        dout = Dir+'delens/alm/'
-        dder = Dir+'delens/derived/'
+        dout = Dir+'alm/'
+        dder = Dir+'derived/'
 
         #filename
         self.alm = [dout+'alm_'+dtag+'_'+x+'.pkl' for x in ids]
@@ -161,8 +154,8 @@ class filename:
     def __init__(self,params):
 
         #//// root directories ////#
-        Dir   = '../../data/sobs/'
-        d_cls = '/project/projectdirs/sobs/sodelensing/cls/'
+        Dir   = '/project/projectdirs/sobs/delensing/'
+        d_cls = Dir+'cls/'
 
         #//// basic tags ////#
         # map
@@ -188,26 +181,17 @@ class filename:
         # cmb map, window, alm and aps
         self.cmb = cmb(Dir,params.telescope,params.nside,params.freq,params.ascale,stag,otag,ids)
 
-        # filtered combined map
-        self.filt = {}
-        for t in ['la','sa','co']:
-            self.filt[t] = almfilt(Dir,t+'coadd',ids)
-
         # lensing reconstruction
-        ltag = '_l'+str(params.rlmin)+'-'+str(params.rlmax)
-        self.quad = {}
-        for q in params.qlist:
-            self.quad[q] = quad_class.quad_fname(params.qtype,q,Dir,stag+ltag,otag,ids)
+        quad_func.quad.fname(params.quad,Dir,ids,stag)
 
         # mass tracer
-        self.galm = ['/global/project/projectdirs/sobs/delensing/multitracer_forBBgroup/combined_phi_alms_noiselessE_mvkappa_simid_'+str(i)+'.npy' for i in range(200)]
+        self.galm = [Dir+'multitracer_forBBgroup/combined_phi_alms_noiselessE_mvkappa_simid_'+str(i)+'.npy' for i in range(200)]
 
-        # delensing
-        dtag = '_dl'+str(params.dlmin)+'-'+str(params.dlmax)
+        # lensing template
+        detag = 'E'+params.telescope+params.freq+'_dl'+str(params.dlmin)+'-'+str(params.dlmax)
         self.delens = {}
         for dm in ['ideal','simple','samemask','wiener']:
-            for den in ['la','co']:
-                self.delens[dm,den] = delensing(Dir,dm+'_E'+den+'_'+dtag,otag,ids)
+            self.delens[dm] = delensing(Dir+'/delensb/',dm+'_'+detag,otag,ids)
 
 
 # Define arrays and functions for analysis
@@ -230,15 +214,15 @@ class recfunc:
 
 
 #initial setup
-def analysis_init(t='',freq='',ntype=''):
-    p = params(t=t,freq=freq,ntype=ntype)
+def analysis_init(t='la',freq='145',ntype='base',lmin=0,lmax=3000,snmin=1,snmax=10,dlmin=20,dlmax=2048):
+    p = params(t=t,freq=freq,ntype=ntype,lmin=lmin,lmax=lmax,snmin=snmin,snmax=snmax,dlmin=dlmin,dlmax=dlmax)
     f = filename(p)
     r = recfunc(p,f)
     return p, f, r
 
 
-def filename_init(t='',freq='',ntype=''):
-    p = params(t=t,freq=freq,ntype=ntype)
+def filename_init(t='la',freq='145',ntype='base',lmin=0,lmax=3000,snmin=1,snmax=10,dlmin=20,dlmax=2048):
+    p = params(t=t,freq=freq,ntype=ntype,lmin=lmin,lmax=lmax,snmin=snmin,snmax=snmax,dlmin=dlmin,dlmax=dlmax)
     f = filename(p)
     return f
 
@@ -256,47 +240,25 @@ def get_beam(t,freq,lmax):
         if freq == '225':  theta = 11.
         if freq == '280':  theta = 9.0
 
-    return CMB.beam(theta,lmax)
+    return 1./CMB.beam(theta,lmax)
 
 
 def window(fmask,t=''):
     if t=='id':
         w, w2, w4 = 1., 1., 1.
     else:
-        w  = hp.fitsfunc.read_map(fmask)
+        w = hp.fitsfunc.read_map(fmask,verbose=False)
+        if t=='la':
+            w = hp.pixelfunc.ud_grade(w,2048)
     w2 = np.average(w**2)
     w4 = np.average(w**4)
     print(w2,w4)
     return w, w2, w4
 
 
-def make_qrec_filter(p,f,r):
-    '''
-    return C-inverse filter for reconstruction, multipled to CMB alms
-    '''
-
-    if p.telescope=='id':
-        obs = r.lcl[:4,:]
-        sig = r.lcl[:4,:]
-    else:
-        obs = np.loadtxt(f.cmb.scl,unpack=True,usecols=(1,2,3,4))
-        sig = np.loadtxt(f.cmb.scl,unpack=True,usecols=(5,6,7,8))
-
-    r.oc = np.zeros((4,p.lmax+1))
-    r.fl = {}
-    r.Fl = {}
-    for m in constants.mtype:
-        r.fl[m] = np.zeros(p.lmax+1)
-        r.Fl[m] = np.zeros((p.lmax+1,p.lmax+1))
-
-    for l in range(p.rlmin,p.rlmax+1):
-        for mi, m in enumerate(constants.mtype):
-            r.fl[m][l] = np.sqrt(sig[mi,l]/r.lcl[mi,l])
-            r.Fl[m][l,0:l+1] = r.fl[m][l,None]/obs[mi,l,None]
-            r.oc[mi,l] = obs[mi,l]/r.fl[m][l]**2
-            r.oc[3,l] = obs[3,l]/(r.fl['T'][l]*r.fl['E'][l])
-
-    del obs, sig
+def loadocl(filename):
+    print('loading TT/EE/BB/TE from pre-computed spectrum:',filename)
+    return np.loadtxt(filename,unpack=True,usecols=(1,2,3,4))
 
 
 def Wiener_Emodes(t,lmin,lmax,fcmbscl):
@@ -324,12 +286,12 @@ def getwElm(lmin,lmax,t='la',freq='145'):
     return Wiener_Emodes(t,lmin,lmax,f.cmb.scl)
 
 
-def Wiener_Lensing(p,f,r):
-    #kappa filter (including kappa->phi conversion)
-    r.wlk = {}
+def Wiener_Lensing(p,clpp): #kappa filter (including kappa->phi conversion)
+    wlk = {}
     for q in p.qlist:
-        Al = np.loadtxt(f.quad[q].al,unpack=True)[1]
-        r.wlk[q] = np.zeros((p.lmax+1,p.lmax+1))
+        Al = np.loadtxt(p.quad.f[q].al,unpack=True)[1]
+        wlk[q] = np.zeros((p.lmax+1,p.lmax+1))
         for l in range(p.dlmin,p.dlmax+1):
-            r.wlk[q][l,0:l] = r.ucl[3,l]*r.kL[l]**2/(r.ucl[3,l]*r.kL[l]**2+Al[l])/r.kL[l]
+            wlk[q][l,0:l] = clpp[l]*p.quad.kL[l]**2/(clpp[l]*p.quad.kL[l]**2+Al[l])/p.quad.kL[l]
+    return wlk
 
