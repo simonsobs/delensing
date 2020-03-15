@@ -66,16 +66,14 @@ def map2alm_rlz(t,snmin,snmax,freq,nside,lmax,fcmb,w,verbose=True,overwrite=Fals
                 pickle.dump((nalm[m]),open(fcmb.nalm[m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def alm_comb_freq(t,snmin,snmax,fcmb,verbose=True,overwrite=False,lcut=5000,freqs=['93','145'],mtype=['T','E','B']):
+def alm_comb_freq(t,snmin,snmax,fcmb,verbose=True,overwrite=False,lcut=5000,freqs=['93','145','225'],mtype=['T','E','B']):
     
     for i in range(snmin,snmax+1):
 
         if verbose: print("map to alm", i, t)
         for mi, m in enumerate(mtype):
 
-            if not overwrite and os.path.exists(fcmb.oalm[m][i]):
-                if verbose: print('File exist:',fcmb.oalm[m][i])
-                continue
+            if misctools.check_path(fcmb.oalm[m][i],overwrite=overwrite,verbose=verbose): continue
 
             salm, nalm, Wl = 0., 0., 0.
             for freq in freqs:
@@ -97,25 +95,27 @@ def alm_comb_freq(t,snmin,snmax,fcmb,verbose=True,overwrite=False,lcut=5000,freq
 
 def aps(t,snmin,snmax,lmax,fcmb,w,w2,w4,verbose=True,overwrite=False):
 
-    if not overwrite and os.path.exists(fcmb.scl):
-        if verbose: print('File exist:',fcmb.scl)
-        return
-
     # aps for each rlz
     cl = {}
-    cl['o'] = cmb.aps(snmin,snmax,lmax,fcmb.oalm,odd=False,verbose=verbose)
+    cl['o'] = cmb.aps(snmin,snmax,lmax,fcmb.oalm,odd=False,verbose=verbose)/w2
     if t != 'id':
-        cl['s'] = cmb.aps(snmin,snmax,lmax,fcmb.salm,odd=False,verbose=verbose)
-        cl['n'] = cmb.aps(snmin,snmax,lmax,fcmb.nalm,odd=False,verbose=verbose)
+        if verbose: print('signal')
+        cl['s'] = cmb.aps(snmin,snmax,lmax,fcmb.salm,odd=False,verbose=verbose)/w2
+        if verbose: print('noise')
+        cl['n'] = cmb.aps(snmin,snmax,lmax,fcmb.nalm,odd=False,verbose=verbose)/w2
     else:
         cl['s'], cl['n'] = cl['o'], cl['o']*0.
 
-    # save to files
     L = np.linspace(0,lmax,lmax+1)
-    if verbose: print('save sim')
+    for i in range(snmin,snmax+1):
+        if misctools.check_path(fcmb.cl[i],verbose=verbose,overwrite=overwrite): continue
+        np.savetxt(fcmb.cl[i],np.concatenate((L[None,:],cl['s'][i-snmin,:,:],cl['n'][i-snmin,:,:])).T)
+
+    # save average to files
+    if misctools.check_path(fcmb.scl,verbose=verbose,overwrite=overwrite): return
     mcl = {}
     for s in ['o','s','n']:
-        mcl[s] = np.mean(cl[s][1:,:,:],axis=0)/w2
+        mcl[s] = np.mean(cl[s][np.max(0,1-snmin):,:,:],axis=0)
     np.savetxt(fcmb.scl,np.concatenate((L[None,:],mcl['o'],mcl['s'],mcl['n'])).T)
 
 
@@ -139,12 +139,12 @@ def loadT(nside,t,win,i,nu=['93','145'],s=[3.,5.],verbose=False):
         f0 = prjlib.filename_init(t=t,freq=freq)
         Ts = hp.fitsfunc.read_map(f0.cmb.lcdm[i],field=0,verbose=verbose)
         Tn = hp.fitsfunc.read_map(f0.cmb.nois[i],field=0,verbose=verbose)
-        T[0,ki,:] = M*hp.pixelfunc.ud_grade(Ts+Tn,nside)/Tcmb
+        T[0,ki,:] = M * hp.pixelfunc.ud_grade(Ts+Tn,nside)/Tcmb
 
     # inv noise covariance
     Nij = T*0.
     for ki, sigma in enumerate(s):
-        Nij[0,ki,:] = W * (sigma*(np.pi/10800.)/2.726e6)**(-2)
+        Nij[0,ki,:] = W * (sigma*(np.pi/10800.)/Tcmb)**(-2)
 
     return T, Nij
 
@@ -174,28 +174,34 @@ def loadQU(nside,t,win,i,nu=['93','145'],s=[3.,5.],verbose=False):
     return QU, Nij
 
 
-def map2alm_wiener(i,t,falm,nsidela,lmax,cl,wla,wsa,nsidesa=512,verbose=False,chn=1,lmaxs=[0],nsides=[0],nsides1=[0],itns=[1000],eps=[1e-6],reducmn=False,lTmax=3000):
+def map2alm_wiener(i,t,falm,nsidela,lmax,cl,wla,wsa,nsidesa=512,verbose=False,chn=1,lmaxs=[0],nsides=[0],nsides1=[0],itns=[1000],eps=[1e-6],reducmn=False,mn=3,nu=['93','145','225'],lTmax=1000,lTcut=100):
 
-    bla = getbeam('la',lmax)
-    bsa = getbeam('sa',lmax)
+    bla = getbeam('la',lmax,nu=nu)
+    bsa = getbeam('sa',lmax,nu=nu)
     npixla = 12*nsidela**2
     npixsa = 12*nsidesa**2
 
     # load LAT
     print('loading maps')
-    QUla, iNla = loadQU(nsidela,'la',wla,i,s=[11.3,14.1])
+    QUla, iNla = loadQU(nsidela,'la',wla,i,nu=nu,s=[11.3,14.1,31.1])
 
     if t == 'co':
-        QUsa, iNsa = loadQU(nsidesa,'sa',wsa,i,s=[3.68,4.67]) # Load SAT
-        Elm, Blm = curvedsky.cninv.cnfilter_freq_nside(2,2,2,npixla,npixsa,lmax,cl[1:3,:],bla,bsa,iNla,iNsa,QUla,QUsa,chn,lmaxs=lmaxs,nsides0=nsides,nsides1=nsides1,itns=itns,eps=eps,filter='W',reducmn=reducmn)
+        QUsa, iNsa = loadQU(nsidesa,'sa',wsa,i,nu=nu,s=[3.68,4.67,8.91]) # Load SAT
+        Elm, Blm = curvedsky.cninv.cnfilter_freq_nside(2,mn,mn,npixla,npixsa,lmax,cl[1:3,:],bla,bsa,iNla,iNsa,QUla,QUsa,chn,lmaxs=lmaxs,nsides0=nsides,nsides1=nsides1,itns=itns,eps=eps,filter='W',reducmn=reducmn)
 
     if t == 'la':
-        T0, iNT = loadT(nside,'la',wla,i,s=[8.,10.])
-        Elm, Blm = curvedsky.cninv.cnfilter_freq(2,2,npixla,lmax,cl[1:3,:],bla,iNla,QUsa,chn,lmaxs=lmaxs,nsides=nsides,itns=itns,eps=eps,filter='')
-        Tlm = 0*Elm
+        '''
+        #T0, iNT = loadT(nsidela,'la',wla,i,s=[8.,10.])
+        T0, iNT = loadT(nsidela,'la',wla,i,s=[10.],nu=['145'])
+        Tlm = pickle.load(open(falm['T'][12],"rb"))*0.
+        eps[0] = 1e-7
+        itns[0] = 3000
         lmaxs[0] = lTmax
-        Tlm[:lTmax+1,:lTmax+1] = curvedsky.cninv.cnfilter_freq(1,2,npixla,lTmax,cl[0:1,:lTmax+1],bla[:,:lTmax+1],iNT,T0,chn,lmaxs=lmaxs,nsides=nsides,itns=itns,eps=eps,filter='')
+        cl[0,:lTcut+1] = 0.
+        Tlm[:lTmax+1,:lTmax+1] = curvedsky.cninv.cnfilter_freq(1,1,npixla,lTmax,cl[0:1,:lTmax+1],bla[1:2,:lTmax+1],iNT,T0,chn,lmaxs=lmaxs,nsides=nsides,itns=itns,eps=eps,filter='',ro=1)
         pickle.dump((Tlm),open(falm['T'][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
+        '''
+        Elm, Blm = curvedsky.cninv.cnfilter_freq(2,mn,npixla,lmax,cl[1:3,:],bla,iNla,QUla,chn,lmaxs=lmaxs,nsides=nsides,itns=itns,eps=eps,filter='')
 
     pickle.dump((Elm),open(falm['E'][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
     pickle.dump((Blm),open(falm['B'][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
@@ -210,7 +216,7 @@ def map2alm_wiener_rlz(t,falm,nside,snmin,snmax,dlmax,tcl,fmask='/project/projec
 
     for i in range(snmin,snmax+1):
 
-        misctools.check_path(falm['E'][i],overwrite=overwrite)
+        if misctools.check_path(falm['E'][i],overwrite=overwrite): continue
         if verbose: print(i)
 
         map2alm_wiener(i,t,falm,nside,dlmax,tcl[:4,:dlmax+1],wla,wsa,verbose=verbose,chn=chn,lmaxs=lmaxs,nsides=nsides,nsides1=nsides1,itns=itns,eps=eps,reducmn=reducmn)
@@ -220,7 +226,6 @@ def map2alm_wiener_rlz(t,falm,nside,snmin,snmax,dlmax,tcl,fmask='/project/projec
 def map2alm_wiener_diag(snmin,snmax,falm,film,lmin,lmax,ocltt):
 
     Fl = np.zeros((lmax+1))
-
     for l in range(lmin,lmax+1):
         Fl[l] = 1./ocltt[l]
 
