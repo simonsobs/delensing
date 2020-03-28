@@ -43,8 +43,8 @@ def map2alm_rlz(t,snmin,snmax,freq,nside,lmax,fcmb,w,verbose=True,overwrite=Fals
     # map -> alm
     for i in range(snmin,snmax+1):
 
-        if not overwrite and os.path.exists(fcmb.oalm['T'][i]) and os.path.exists(fcmb.oalm['E'][i]) and os.path.exists(fcmb.oalm['B'][i]):
-            if verbose: print('Files exist:',fcmb.oalm['T'][i],'and E/B')
+        if not overwrite and os.path.exists(fcmb.alms['o']['T'][i]) and os.path.exists(fcmb.alms['o']['E'][i]) and os.path.exists(fcmb.alms['o']['B'][i]):
+            if verbose: print('Files exist:',fcmb.alms['o']['T'][i],'and E/B')
             continue
 
         if verbose: print("map to alm", i, t)
@@ -60,10 +60,10 @@ def map2alm_rlz(t,snmin,snmax,freq,nside,lmax,fcmb,w,verbose=True,overwrite=Fals
 
         # save to files
         for m in mtype:
-            pickle.dump((oalm[m]),open(fcmb.oalm[m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump((oalm[m]),open(fcmb.alms['o'][m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
             if t != 'id': 
-                pickle.dump((salm[m]),open(fcmb.salm[m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
-                pickle.dump((nalm[m]),open(fcmb.nalm[m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump((salm[m]),open(fcmb.alms['s'][m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump((nalm[m]),open(fcmb.alms['n'][m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def alm_comb_freq(t,snmin,snmax,fcmb,verbose=True,overwrite=False,lcut=5000,freqs=['93','145','225'],mtype=['T','E','B']):
@@ -73,50 +73,54 @@ def alm_comb_freq(t,snmin,snmax,fcmb,verbose=True,overwrite=False,lcut=5000,freq
         if verbose: print("map to alm", i, t)
         for mi, m in enumerate(mtype):
 
-            if misctools.check_path(fcmb.oalm[m][i],overwrite=overwrite,verbose=verbose): continue
+            if misctools.check_path(fcmb.alms['o'][m][i],overwrite=overwrite,verbose=verbose): continue
 
             salm, nalm, Wl = 0., 0., 0.
             for freq in freqs:
-                f0 = prjlib.filename_init(t=t,freq=freq)
-                Nl = np.loadtxt(f0.cmb.scl,unpack=True)[mi+9]
+                f0 = prjlib.filename_init(t=t,froeq=freq)
+                Nl = np.loadtxt(f0.cmb.scl['n'],unpack=True)[mi+1]
                 Nl[0:2] = 1.
                 Il = 1./Nl
-                salm += pickle.load(open(f0.cmb.salm[m][i],"rb"))*Il[:,None]
-                nalm += pickle.load(open(f0.cmb.nalm[m][i],"rb"))*Il[:,None]
+                salm += pickle.load(open(f0.cmb.alms['s'][m][i],"rb"))*Il[:,None]
+                nalm += pickle.load(open(f0.cmb.alms['n'][m][i],"rb"))*Il[:,None]
                 Wl   += Il
             salm *= 1./Wl[:,None]
             nalm *= 1./Wl[:,None]
             salm[lcut+1:,:] = 0.
             nalm[lcut+1:,:] = 0.
-            pickle.dump((salm+nalm),open(fcmb.oalm[m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
-            pickle.dump((salm),open(fcmb.salm[m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
-            pickle.dump((nalm),open(fcmb.nalm[m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump((salm+nalm),open(fcmb.alms['o'][m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump((salm),open(fcmb.alms['s'][m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump((nalm),open(fcmb.alms['n'][m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def aps(t,snmin,snmax,lmax,fcmb,w,w2,w4,verbose=True,overwrite=False):
+def aps(snmin,snmax,lmax,fcmb,w2,stype=['o','s','n'],mtype=['T','E','B'],verbose=True,overwrite=False):
 
-    # aps for each rlz
+    # compute aps for each rlz
     cl = {}
-    cl['o'] = cmb.aps(snmin,snmax,lmax,fcmb.oalm,odd=False,verbose=verbose)/w2
-    if t != 'id':
-        if verbose: print('signal')
-        cl['s'] = cmb.aps(snmin,snmax,lmax,fcmb.salm,odd=False,verbose=verbose)/w2
-        if verbose: print('noise')
-        cl['n'] = cmb.aps(snmin,snmax,lmax,fcmb.nalm,odd=False,verbose=verbose)/w2
-    else:
-        cl['s'], cl['n'] = cl['o'], cl['o']*0.
-
-    L = np.linspace(0,lmax,lmax+1)
-    for i in range(snmin,snmax+1):
-        if misctools.check_path(fcmb.cl[i],verbose=verbose,overwrite=overwrite): continue
-        np.savetxt(fcmb.cl[i],np.concatenate((L[None,:],cl['s'][i-snmin,:,:],cl['n'][i-snmin,:,:])).T)
+    for s in stype:
+        if verbose: print('stype =',s)
+        odd = True
+        if s in ['o','s','n']: odd = False
+        cl[s] = cmb.aps(snmin,snmax,lmax,fcmb.alms[s],odd=odd,mtype=mtype,verbose=verbose,overwrite=overwrite,w2=w2,fname=fcmb.cl[s])
 
     # save average to files
-    if misctools.check_path(fcmb.scl,verbose=verbose,overwrite=overwrite): return
-    mcl = {}
-    for s in ['o','s','n']:
-        mcl[s] = np.mean(cl[s][np.max(0,1-snmin):,:,:],axis=0)
-    np.savetxt(fcmb.scl,np.concatenate((L[None,:],mcl['o'],mcl['s'],mcl['n'])).T)
+    L = np.linspace(0,lmax,lmax+1)
+    for s in stype:
+        if misctools.check_path(fcmb.scl[s],verbose=verbose,overwrite=overwrite): return
+        mcl = np.mean(cl[s][np.max(0,1-snmin):,:,:],axis=0)
+        vcl = np.std(cl[s][np.max(0,1-snmin):,:,:],axis=0)
+        np.savetxt(fcmb.scl[s],np.concatenate((L[None,:],mcl,vcl)).T)
+
+
+def apsx(snmin,snmax,lmax,fcmb,gcmb,w2,verbose=True,overwrite=False):
+
+    xl = cmb.apsx(snmin,snmax,lmax,fcmb.alms['w'],gcmb.alms['o'],verbose=verbose)/w2
+
+    # save average to files
+    L = np.linspace(0,lmax,lmax+1)
+    mxl = np.mean(xl[np.max(0,1-snmin):,:,:],axis=0)
+    vxl = np.std(xl[np.max(0,1-snmin):,:,:],axis=0)
+    np.savetxt(fcmb.scl['x'],np.concatenate((L[None,:],mxl,vxl)).T)
 
 
 
@@ -201,7 +205,7 @@ def map2alm_wiener(i,t,falm,nsidela,lmax,cl,wla,wsa,nsidesa=512,verbose=False,ch
         Tlm[:lTmax+1,:lTmax+1] = curvedsky.cninv.cnfilter_freq(1,1,npixla,lTmax,cl[0:1,:lTmax+1],bla[1:2,:lTmax+1],iNT,T0,chn,lmaxs=lmaxs,nsides=nsides,itns=itns,eps=eps,filter='',ro=1)
         pickle.dump((Tlm),open(falm['T'][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
         '''
-        Elm, Blm = curvedsky.cninv.cnfilter_freq(2,mn,npixla,lmax,cl[1:3,:],bla,iNla,QUla,chn,lmaxs=lmaxs,nsides=nsides,itns=itns,eps=eps,filter='')
+        Elm, Blm = curvedsky.cninv.cnfilter_freq(2,mn,npixla,lmax,cl[1:3,:],bla,iNla,QUla,chn,lmaxs=lmaxs,nsides=nsides,itns=itns,eps=eps,filter='W')
 
     pickle.dump((Elm),open(falm['E'][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
     pickle.dump((Blm),open(falm['B'][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
@@ -223,46 +227,61 @@ def map2alm_wiener_rlz(t,falm,nside,snmin,snmax,dlmax,tcl,fmask='/project/projec
 
 
 
-def map2alm_wiener_diag(snmin,snmax,falm,film,lmin,lmax,ocltt):
+def map2alm_wiener_diag(snmin,snmax,falm,film,lmin,lmax,cls,ocls,mtype=['T','E','B'],overwrite=False):
 
-    Fl = np.zeros((lmax+1))
+    Fl = {}
+    for m in mtype:
+        Fl[m] = np.zeros((lmax+1))
+
     for l in range(lmin,lmax+1):
-        Fl[l] = 1./ocltt[l]
+        Fl['T'][l] = cls[0,l]/ocls[0,l]
+        Fl['E'][l] = cls[1,l]/ocls[1,l]
+        Fl['B'][l] = cls[2,l]/ocls[2,l]
 
     for i in range(snmin,snmax+1):
 
-        Talm = pickle.load(open(falm['T'][i],"rb"))
-        Talm *= Fl[:,None]
-        pickle.dump((Talm),open(film['T'][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
+        for m in mtype:
+            if misctools.check_path(film[m][i],overwrite=overwrite): continue
+            alm = pickle.load(open(falm[m][i],"rb"))
+            alm *= Fl[m][:,None]
+            pickle.dump((alm),open(film[m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def wiener_iso(snmin,snmax,lmin,lmax,fwlm,cls,ocls,ncls,mtype=['T','E','B'],overwrite=False):
+
+    Fl = {}
+    for m in mtype:
+        Fl[m] = np.zeros((lmax+1))
+
+    for l in range(lmin,lmax+1):
+        Fl['T'][l] = cls[0,l]/ocls[0,l]
+        Fl['E'][l] = cls[1,l]/ocls[1,l]
+        Fl['B'][l] = cls[2,l]/ocls[2,l]
+
+    __, fid, __ = prjlib.analysis_init(t='id',snmin=snmin,snmax=snmax,lmax=lmax)
+
+    for i in range(snmin,snmax+1):
+
+        for mi, m in enumerate(mtype):
+
+            if misctools.check_path(fwlm[m][i],overwrite=overwrite): continue
+
+            alm = pickle.load(open(fid.cmb.alms['o'][m][i],"rb"))
+            alm += curvedsky.utils.gauss1alm(lmax,ncls[mi,:])
+            alm *= Fl[m][:,None]
+            pickle.dump((alm),open(fwlm[m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
 
 
 '''
-def alm_comb_telescope(p,f,r,salcut=1000):
-    pla = prjlib.params(t='la',freq='coadd')
-    psa = prjlib.params(t='sa',freq='coadd')
-    fla = prjlib.filename(pla)
-    fsa = prjlib.filename(psa)
-    wla, wla2, wla4 = prjlib.window(fla.cmb.amask,'la')
-    wsa, wsa2, wsa4 = prjlib.window(fsa.cmb.amask,'sa')
-    for i in range(p.snmin,p.snmax):
-        print("map to alm", i)
-        for mi, m in enumerate(constants.mtype):
-            n0 = np.loadtxt(fla.cmb.scl,unpack=True)[mi+9]
-            n1 = np.loadtxt(fsa.cmb.scl,unpack=True)[mi+9]
-            n0[0:2] = 1.
-            n1[0:2] = 1.
-            n0[salcut+1:] = 0.
-            n1[salcut+1:] = 1.
-            salmla = pickle.load(open(fla.cmb.salm[m][i],"rb"))
-            salmsa = pickle.load(open(fsa.cmb.salm[m][i],"rb"))
-            nalmla = pickle.load(open(fla.cmb.nalm[m][i],"rb"))
-            nalmsa = pickle.load(open(fsa.cmb.nalm[m][i],"rb"))
-            salm = (n1[:,None]*salmla + n0[:,None]*salmsa)/(n0[:,None]+n1[:,None])
-            nalm = (n1[:,None]*nalmla + n0[:,None]*nalmsa)/(n0[:,None]+n1[:,None])
-            oalm = salm + nalm
-            pickle.dump((oalm),open(f.cmb.oalm[m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
-            pickle.dump((salm),open(f.cmb.salm[m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
-            pickle.dump((nalm),open(f.cmb.nalm[m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
+def map2alm_convert(snmin,snmax,film,fwlm,lmin,lmax,cls,overwrite=False):
+
+    for i in range(snmin,snmax+1):
+
+        for mi, m in enumerate(['T','E','B']):
+            if misctools.check_path(fwlm[m][i],overwrite=overwrite): continue
+            alm = pickle.load(open(film[m][i],"rb"))
+            alm *= cls[mi,:,None]
+            pickle.dump((alm),open(fwlm[m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
 '''
 
 
