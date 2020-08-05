@@ -8,9 +8,9 @@ import tqdm
 
 # from SO pipeline
 from mapsims import SONoiseSimulator
-from mapsims import SOStandalonePrecomputedCMB
-from mapsims import SOChannel
-from mapsims import noise
+#from mapsims import SOStandalonePrecomputedCMB
+#from mapsims import Channel as SOChannel
+#from mapsims import noise
 
 # from cmblensplus/wrap/
 import curvedsky as CS
@@ -26,16 +26,19 @@ import prjlib
 
 class sim_map:
 
-    def __init__(self,doreal=False,telescope='la',ntype='base',freq='145',snmin=0,snmax=100,overwrite=False,verbose=True):
+    def __init__(self,doreal=False,telescope='la',ntype='base',submap='00',snmin=0,snmax=100,overwrite=False,verbose=True):
 
         self.telescope = str.upper(telescope)
-        self.ntype  = ntype
-        self.band   = int(freq)
+        if not telescope in ['sa','la']:
+            sys.exit('only SAT and LAT are supported for mbs sim')
+        
         self.doreal = doreal
         self.rlz = np.linspace(snmin,snmax,snmax-snmin+1,dtype=np.int)
+
         self.overwrite = overwrite
         self.verbose = verbose
 
+        self.ntype  = ntype
         if 'base' in ntype:
             self.mode = 'baseline'
         elif 'goal' in ntype:
@@ -50,6 +53,10 @@ class sim_map:
             self.roll = int(ntype[ntype.find('roll')+4:])
         else:
             self.roll = 0
+        
+        # tube (LT or ST)
+        self.tube = str.upper(telescope[0]) + 'T' + submap[0]
+        self.tube_subid = int(submap[1])
 
         self.nside, self.npix = prjlib.mapres(telescope)
 
@@ -57,58 +64,55 @@ class sim_map:
         d = prjlib.data_directory()
         d_map = d['cmb'] + 'map/'
 
-        # map filename
+        # output map filename
         ids = prjlib.rlz_index(doreal=doreal)
         if ntype == '':
             #cmb signal map
-            if telescope == 'id': # use LAT signal sim
-                self.fmap = [d_map+'/cmb_uKCMB_la145_nside'+str(self.nside)+'_'+x+'.fits' for x in ids]
-            else:
-                self.fmap = [d_map+'/cmb_uKCMB_'+telescope+freq+'_nside'+str(self.nside)+'_'+x+'.fits' for x in ids]
+            self.fmap = [d_map+'/cmb_uKCMB_'+telescope+submap+'_nside'+str(self.nside)+'_'+x+'.fits' for x in ids]
         else:
             #cmb noise map
-            self.fmap = [d_map+'/noise_uKCMB_'+telescope+freq+'_'+ntype+'_nside'+str(self.nside)+'_'+x+'.fits' for x in ids]
+            self.fmap = [d_map+'/noise_uKCMB_'+telescope+submap+'_'+ntype+'_nside'+str(self.nside)+'_'+x+'.fits' for x in ids]
 
 
     def SOsim(self):
         # Simulate CMB and noise maps
 
-        ch  = SOChannel(self.telescope,self.band)
-        print(ch.center_frequency.value)
-    
-        if self.verbose:  print(self.mode,self.roll)
+        #ch  = SOChannel(self.telescope,self.band)
+
+        if self.verbose:
+            print(self.mode,self.roll)
 
         for i in tqdm.tqdm(self.rlz,ncols=100,desc='generate map'):
     
             if misctools.check_path(self.fmap[i],overwrite=self.overwrite,verbose=self.verbose): continue
-            if self.verbose:  misctools.progress(i,self.rlz,addtext='sim map for '+self.mode)
-        
+
             if self.ntype == '':
-                # signal simulation
-                sim = SOStandalonePrecomputedCMB(i,nside=self.nside,input_units='uK_CMB')
-                map = SOStandalonePrecomputedCMB.simulate(sim,ch)
+                # To avoid bugs in MBS code for loading signals, here we directly load alm files and convert it to a map.
+                # load alm
+                sim = SONoiseSimulator(nside=self.nside, apply_beam_correction=False, rolloff_ell=self.roll)
+
+                fname = "/global/project/projectdirs/sobs/v4_sims/mbs/cmb/fullskyLensedUnabberatedCMB_alm_set00_"+str(i).zfill(5)+".fits"
+                Tlm, Elm, Blm = np.complex128( hp.read_alm( fname, hdu=(1, 2, 3) ) )
+
+                # beam
+                lmax  = hp.sphtfunc.Alm.getlmax( len(Tlm) )
+                l = np.linspace(0,lmax,lmax+1)
+                theta = sim.tubes[self.tube][self.tube_subid].beam / sim.tubes[self.tube][self.tube_subid].beam._unit
+                bl = np.exp( -l*(l+1)*(theta*np.pi/10800.)**2/16./np.log(2.) )
+
+                # convolution and produce a map
+                Tlm = hp.almxfl( Tlm, bl )
+                Elm = hp.almxfl( Elm, bl )
+                Blm = hp.almxfl( Blm, bl )
+                map = hp.alm2map( np.array((Tlm,Elm,Blm)), self.nside, verbose=False )
+
             else:
                 # noise simulation
-                sim = SONoiseSimulator(telescopes=[self.telescope],nside=self.nside,apply_beam_correction=False,sensitivity_mode=self.mode,rolloff_ell=self.roll)
-                map = SONoiseSimulator.simulate(sim,ch)
+                sim = SONoiseSimulator(nside=self.nside, apply_beam_correction=False, sensitivity_mode=self.mode, rolloff_ell=self.roll)
+                map = sim.simulate(tube=self.tube)[self.tube_subid][0]
 
             # save to file
             hp.fitsfunc.write_map(self.fmap[i],map,overwrite=True)
-
-
-def output_hitmap(**kwargs_ov):
-
-    for telescope in ['LA','SA']:
-
-        nside, __ = prjlib.mapres(telescope)
-        f = prjlib.hitmap_filename(telescope,nside)
-
-        if misctools.check_path(f,**kwargs_ov): continue
-
-        s = noise.SONoiseSimulator(nside)
-        w = s.hitmap[telescope]
-    
-        hp.fitsfunc.write_map(f,w,overwrite=kwargs_ov['overwrite'])
 
 
 def map2alm_core(nside,lmax,fmap,w,bl):
@@ -132,13 +136,13 @@ def map2alm_core(nside,lmax,fmap,w,bl):
     return alm
 
 
-def map2alm(t,rlz,freq,nside,lmax,fcmb,w,verbose=True,overwrite=False,mtype=['T','E','B'],roll=2):
+def map2alm(t,rlz,submap,nside,lmax,fcmb,w,verbose=True,overwrite=False,mtype=['T','E','B'],roll=2):
 
     # beam
-    bl = prjlib.get_beam(t,freq,lmax)
+    bl = prjlib.get_beam(t,submap,lmax)
 
     # map -> alm
-    for i in tqdm.tqdm(rlz,ncols=100,desc='map2alm (freq='+freq+')'):
+    for i in tqdm.tqdm(rlz,ncols=100,desc='map2alm (submap id='+submap+')'):
 
         if not overwrite and os.path.exists(fcmb.alms['o']['T'][i]) and os.path.exists(fcmb.alms['o']['E'][i]) and os.path.exists(fcmb.alms['o']['B'][i]):
             if verbose: print('Files exist:',fcmb.alms['o']['T'][i],'and E/B')
@@ -166,7 +170,7 @@ def map2alm(t,rlz,freq,nside,lmax,fcmb,w,verbose=True,overwrite=False,mtype=['T'
 
 
 
-def alm_comb_freq(rlz,fcmbfreq,fcmbcomb,verbose=True,overwrite=False,freqs=['93','145','225'],mtype=[(0,'T'),(1,'E'),(2,'B')],roll=2):
+def alm_comb_submap(rlz,fcmbsub,fcmbcomb,verbose=True,overwrite=False,submaps=['00'],mtype=[(0,'T'),(1,'E'),(2,'B')],roll=2):
     
     for i in tqdm.tqdm(rlz,ncols=100,desc='alm combine'):
 
@@ -175,12 +179,12 @@ def alm_comb_freq(rlz,fcmbfreq,fcmbcomb,verbose=True,overwrite=False,freqs=['93'
             if misctools.check_path(fcmbcomb.alms['o'][m][i],overwrite=overwrite,verbose=verbose): continue
 
             salm, nalm, Wl = 0., 0., 0.
-            for freq in freqs:
-                Nl = np.loadtxt(fcmbfreq[freq].scl['n'],unpack=True)[mi+1]
+            for sub in submaps:
+                Nl = np.loadtxt(fcmbsub[sub].scl['n'],unpack=True)[mi+1]
                 Nl[0:2] = 1.
                 Il = 1./Nl
-                salm += pickle.load(open(fcmbfreq[freq].alms['s'][m][i],"rb"))*Il[:,None]
-                nalm += pickle.load(open(fcmbfreq[freq].alms['n'][m][i],"rb"))*Il[:,None]
+                salm += pickle.load(open(fcmbsub[sub].alms['s'][m][i],"rb")) * Il[:,None]
+                nalm += pickle.load(open(fcmbsub[sub].alms['n'][m][i],"rb")) * Il[:,None]
                 Wl   += Il
             salm /= Wl[:,None]
             nalm /= Wl[:,None]
@@ -226,29 +230,30 @@ def apsx(rlz,lmax,fcmb,gcmb,w2,**kwargs_ov):
     np.savetxt(fcmb.scl['x'],np.concatenate((L[None,:],mxl,vxl)).T)
 
 
-def getbeam(t,lmax,nu=['93','145','225']):
-
-    bl = np.ones((len(nu),lmax+1))
-    
-    for ki, freq in enumerate(nu):
-        bl[ki,:] = prjlib.get_beam(t,freq,lmax)
-    return bl
-
 
 #////////////////////////////////////////////////////////////////////////////////
 # Wiener filter
 #////////////////////////////////////////////////////////////////////////////////
 
 class wiener_objects:
+    # define parameteres and arrays for wiener filtering
 
-    def __init__(self,t,tqu,freqs,ntype,nside):
+    def __init__(self,t,tqu,submaps,ntype,nside):
 
+        # telescope ("la" or "co")
         self.t     = t
+        
+        # tqu = 1 for T and 2 for Q/U
         self.tqu   = tqu
-        self.freqs = freqs
+        
+        # list of submaps to be combined
+        self.submaps = submaps
+        
+        # nside of maps
         self.nside = nside
 
-        if t=='la':
+        # noise model
+        if self.t=='la':
             self.Nside = 2048
             self.lmax  = 4096
             if 'base' in ntype:
@@ -256,7 +261,7 @@ class wiener_objects:
             if 'goal' in ntype:
                 self.sigma = np.array([5.8,6.3,15.])
                 
-        if t=='sa':
+        if self.t=='sa':
             self.Nside = 512
             self.lmax  = 2048
             if 'base' in ntype:
@@ -264,50 +269,58 @@ class wiener_objects:
             if 'goal' in ntype:
                 self.sigma = np.array([1.9,2.1,4.2])
 
+        # pixel number of map
         self.npix  = 12*self.nside**2
 
-        self.bl = getbeam(t,self.lmax,nu=freqs)
+        # beam function + pixel window
+        self.bl = prjlib.get_beams(self.t,self.lmax,self.submaps)
         if self.nside != self.Nside:
             self.bl *= hp.sphtfunc.pixwin(self.nside)[:self.lmax+1] / hp.sphtfunc.pixwin(self.Nside)[:self.lmax+1]
 
-        self.maps = np.zeros((tqu,len(freqs),self.npix))
-        self.invN = np.zeros((tqu,len(freqs),self.npix))
+        # prepare arrays
+        self.maps = np.zeros((self.tqu,len(self.submaps),self.npix))
+        self.invN = np.zeros((self.tqu,len(self.submaps),self.npix))
 
-        self.W = prjlib.hitmap(t,self.nside) 
-        self.M, __ = prjlib.window(t,nside=self.nside,ascale=0.)
-        #if t=='sa': 
-        #    self.M = hp.pixelfunc.ud_grade(hp.fitsfunc.read_map('../../data/sodelens/mask/mask_apodized.fits'),self.nside)
-        #    self.M = self.M/(self.M+1e-30)
-        #self.M *= self.W/(self.W+1e-30) # further multiplying hitcount binary mask
+        # hitcount map to be used for inverse noise modeling
+        self.W = prjlib.hitmap(self.t,self.nside)
+        
+        # define survey boundary
+        self.M, __ = prjlib.window(self.t,nside=self.nside,ascale=0.)
 
 
     def load_maps(self,fmap,i,Tcmb=2.72e6,verbose=False):
 
-        for ki, freq in enumerate(self.freqs):
+        # loading submaps and multiply survey boundary
         
-            if self.tqu == 1:
-            
-                Ts = hp.fitsfunc.read_map(fmap[freq].lcdm[i],field=0,verbose=verbose)
-                Tn = hp.fitsfunc.read_map(fmap[freq].nois[i],field=0,verbose=verbose)
+        for ki, submap in enumerate(self.submaps):
+        
+            if self.tqu == 1:  # temperature
+
+                Ts = hp.fitsfunc.read_map(fmap[submap].lcdm[i],field=0,verbose=verbose)
+                Tn = hp.fitsfunc.read_map(fmap[submap].nois[i],field=0,verbose=verbose)
                 self.maps[0,ki,:] = self.M * hp.pixelfunc.ud_grade(Ts+Tn,self.nside)/Tcmb
         
-            if self.tqu == 2:
+            if self.tqu == 2:  # polarization
         
-                Qs = hp.fitsfunc.read_map(fmap[freq].lcdm[i],field=1,verbose=verbose)
-                Us = hp.fitsfunc.read_map(fmap[freq].lcdm[i],field=2,verbose=verbose)
-                Qn = hp.fitsfunc.read_map(fmap[freq].nois[i],field=1,verbose=verbose)
-                Un = hp.fitsfunc.read_map(fmap[freq].nois[i],field=2,verbose=verbose)
+                Qs = hp.fitsfunc.read_map(fmap[submap].lcdm[i],field=1,verbose=verbose)
+                Us = hp.fitsfunc.read_map(fmap[submap].lcdm[i],field=2,verbose=verbose)
+                Qn = hp.fitsfunc.read_map(fmap[submap].nois[i],field=1,verbose=verbose)
+                Un = hp.fitsfunc.read_map(fmap[submap].nois[i],field=2,verbose=verbose)
 
                 self.maps[0,ki,:] = self.M * hp.pixelfunc.ud_grade(Qs+Qn,self.nside)/Tcmb
                 self.maps[1,ki,:] = self.M * hp.pixelfunc.ud_grade(Us+Un,self.nside)/Tcmb
 
 
-    def load_invN(self,Tcmb=2.72e6):  # inv noise covariance
+    def load_invN(self,Tcmb=2.72e6):  
+        
+        # inv noise covariance at each submap constructed from hitcount map
 
         for ki, sigma in enumerate(self.sigma):
 
+            # temperature
             self.invN[0,ki,:] = self.W * (sigma*(np.pi/10800.)/Tcmb)**(-2)
 
+            # polarization
             if self.tqu == 2:
                 self.invN[:,ki,:] *= 2.
                 self.invN[1,ki,:] = self.invN[0,ki,:]
@@ -318,12 +331,14 @@ def cinv_core(i,t,wla,wsa,lmax,falm,cl,lTmax=1000,lTcut=100,**kwargs):
 
     mn  = len(wla.bl[:,0])
 
+    # temperature
     if wla.tqu==1:
         if t == 'la':
             cl[0,:lTcut+1] = 0.
             Tlm = CS.cninv.cnfilter_freq(1,mn,wla.nside,lmax,cl[0:1,:],wla.bl,wla.invN,wla.maps,**kwargs)
             pickle.dump((Tlm),open(falm['T'][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
 
+    # polarization
     if wla.tqu==2:
         if t == 'co':
             Elm, Blm = CS.cninv.cnfilter_freq_nside(2,mn,mn,wla.nside,wsa.nside,lmax,cl[1:3,:],wla.bl[:,:lmax+1],wsa.bl,wla.invN,wsa.invN,wla.maps,wsa.maps,**kwargs)
@@ -335,18 +350,18 @@ def cinv_core(i,t,wla,wsa,lmax,falm,cl,lTmax=1000,lTcut=100,**kwargs):
 
 
 
-def cinv(tqu,rlz,t,lmax,ntype,fmap,falm,cl,freqs=[],fmapsa='',overwrite=False,verbose=False,**kwargs):
+def cinv(tqu,rlz,t,lmax,ntype,fmap,falm,cl,submaps=[],fmapsa='',overwrite=False,verbose=False,**kwargs):
 
     # prepare objects for wiener filtering
     if t == 'la':
-        wla = wiener_objects('la',tqu,freqs,ntype,kwargs['nsides'][0])
+        wla = wiener_objects('la',tqu,submaps,ntype,kwargs['nsides'][0])
     if t == 'co':
-        wla = wiener_objects('la',tqu,freqs,ntype,kwargs['nsides0'][0])
+        wla = wiener_objects('la',tqu,submaps,ntype,kwargs['nsides0'][0])
     wiener_objects.load_invN(wla)
 
     wsa = None
     if t == 'co':
-        wsa = wiener_objects('sa',tqu,freqs,ntype,kwargs['nsides1'][0])
+        wsa = wiener_objects('sa',tqu,submaps,ntype,kwargs['nsides1'][0])
         wiener_objects.load_invN(wsa)
 
     # roll-off effect
@@ -368,9 +383,10 @@ def cinv(tqu,rlz,t,lmax,ntype,fmap,falm,cl,freqs=[],fmapsa='',overwrite=False,ve
 
 def iso_noise(rlz,lmin,lmax,fslm,falm,ncls,mtype=['T','E','B'],**kwargs_ov):
 
+    # generate isotropic noise from a given noise spectrum and add it to fullsky signal
     for i in tqdm.tqdm(rlz,ncols=100,desc='iso noise'):
 
-        for mi, m in enumerate(mtype):
+        for mi, m in enumerate(mtype): # loop for T/E/B
 
             if misctools.check_path(falm[m][i],**kwargs_ov): continue
 
@@ -379,38 +395,41 @@ def iso_noise(rlz,lmin,lmax,fslm,falm,ncls,mtype=['T','E','B'],**kwargs_ov):
             pickle.dump((alm),open(falm[m][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener_iso','wiener_diag']):
+def interface(kwargs_ov={},kwargs_cmb={},run=[]):
 
     telescope = kwargs_cmb['t']
     snmin = kwargs_cmb['snmin']
     snmax = kwargs_cmb['snmax']
     ntype = kwargs_cmb['ntype']
 
+    #submaps = ['00','01','10','11','20','21','30','31','40','41','50','51']
+    submaps = ['20','21','30','31','40','41','50','51']
 
-    if 'hitmap' in run:
-
-        output_hitmap(**kwargs_ov)
-        
-
+    
     if 'simmap' in run:
 
+        # simulate CMB map for LAT and SAT
+        
         if telescope in ['la','sa']:
 
-            for freq in freqs:
+            for submap in submaps:
                 
                 # signal sim
-                sobj = sim_map(telescope=telescope,freq=freq,snmin=snmin,snmax=snmax,ntype='',**kwargs_ov)
+                sobj = sim_map(telescope=telescope,submap=submap,snmin=snmin,snmax=snmax,ntype='',**kwargs_ov)
                 sim_map.SOsim(sobj)
                 # noise sim
-                sobj = sim_map(telescope=telescope,freq=freq,snmin=snmin,snmax=snmax,ntype=ntype,**kwargs_ov)
+                sobj = sim_map(telescope=telescope,submap=submap,snmin=snmin,snmax=snmax,ntype=ntype,**kwargs_ov)
                 sim_map.SOsim(sobj)
 
 
-    if 'calcalm' in run:  # map -> alm for each freq (and com) and telescope
+    if 'calcalm' in run:  
+        
+        # map -> alm for each submap (and com) and telescope
 
         if '_iso' in ntype:  
+            # This noise type is used for checking impact of non-isotropic noise
             # compute alms for isotropic noise
-            # need pre-computed frequency-coadded spectrum 
+            # need pre-computed submap-coadded spectrum and "id" case
 
             if kwargs_cmb['fltr'] != 'none':
                 sys.exit('isotropic noise calculation is only valid for none-filtered case')
@@ -418,12 +437,12 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
             if telescope in ['la','co']:
 
                 # for isotropic noise spectrum and diagonal wiener filtering
-                pc = prjlib.analysis_init(t=telescope,freq='com',snmin=snmin,snmax=snmax,ntype=ntype.replace('_iso',''))
+                pc = prjlib.analysis_init(t=telescope,submap='com',snmin=snmin,snmax=snmax,ntype=ntype.replace('_iso',''))
                 ncl = prjlib.loadocl(pc.fcmb.scl['n'],lTmin=pc.lTmin,lTmax=pc.lTmax)
 
                 # setup filenames for input and output
                 inp = prjlib.analysis_init(t='id',ntype='cv',snmin=snmin,snmax=snmax) # to use fullsky signal
-                out = prjlib.analysis_init(t=telescope,freq='com',fltr='none',snmin=snmin,snmax=snmax,ntype=ntype)
+                out = prjlib.analysis_init(t=telescope,submap='com',fltr='none',snmin=snmin,snmax=snmax,ntype=ntype)
 
                 # alm and aps
                 iso_noise(pc.rlz,pc.roll,pc.lmax,inp.fcmb.alms['o'],out.fcmb.alms['o'],ncl[0:3,:],**kwargs_ov)
@@ -432,6 +451,8 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
         else:
 
             if kwargs_cmb['fltr'] == 'none':
+                
+                # works for "la", "sa" and "id"
 
                 if telescope == 'co':
                     sys.exit('does not support none filter case for LA+SA')
@@ -439,42 +460,53 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                 if telescope == 'id': # map -> alm for fullsky case
                     stype = ['o']
                     ntype = 'cv'
-                    freqs = ['145']
+                    submaps = ['00']
                 else:
                     stype = ['s','n','o']
 
                 # load survey window
-                w, wn = prjlib.window(telescope,ascale=kwargs_cmb['ascale']) 
-        
-                # map -> alm for each freq
-                for freq in freqs:
-                    p = prjlib.analysis_init(t=telescope,freq=freq,snmin=snmin,snmax=snmax,ntype=ntype) # define parameters, filenames
-                    map2alm(p.telescope,p.rlz,freq,p.nside,p.lmax,p.fcmb,w,roll=p.roll,**kwargs_ov) # map -> alm
-                    aps(p.rlz,p.lmax,p.fcmb,wn[2],stype=stype,**kwargs_ov)
+                w_mask, __ = prjlib.window(telescope,ascale=kwargs_cmb['ascale'])
 
-                # combine alm over freqs    
+                # map -> alm for each submap
+                for submap in submaps:
+                    pobj = prjlib.analysis_init(t=telescope,submap=submap,snmin=snmin,snmax=snmax,ntype=ntype) # define parameters, filenames
+                    
+                    sim = SONoiseSimulator(nside=pobj.nside)
+                    w_hit, __ = sim.get_hitmaps(tube=str.upper(telescope[0])+'T'+submap[0])
+                
+                    w = w_mask * w_hit[int(submap[1])]
+                    wn = prjlib.calc_wfactor(w)
+
+                    map2alm(pobj.telescope,pobj.rlz,submap,pobj.nside,pobj.lmax,pobj.fcmb,w,roll=pobj.roll,**kwargs_ov) # map -> alm
+                    aps(pobj.rlz,pobj.lmax,pobj.fcmb,wn[2],stype=stype,**kwargs_ov)
+
+                # combine alm over submaps
                 if telescope in ['la','sa']:
-                    p = prjlib.analysis_init(t=telescope,freq='com',snmin=snmin,snmax=snmax,ntype=ntype)
-                    fmap = prjlib.filename_freqs(freqs,t=telescope,ntype=ntype)
-                    alm_comb_freq(p.rlz,fmap,p.fcmb,roll=p.roll,**kwargs_ov)
-                    aps(p.rlz,p.lmax,p.fcmb,wn[2],**kwargs_ov)
+                    
+                    pobj = prjlib.analysis_init(t=telescope,submap='com',snmin=snmin,snmax=snmax,ntype=ntype)
+                    fmap = prjlib.filename_submaps(submaps,t=telescope,ntype=ntype)
+                    alm_comb_submap(pobj.rlz,fmap,pobj.fcmb,roll=pobj.roll,submaps=submaps,**kwargs_ov)
+                    aps(pobj.rlz,pobj.lmax,pobj.fcmb,wn[2],**kwargs_ov)
 
 
             elif kwargs_cmb['fltr'] == 'cinv':  # full wiener filtering
 
+                # works for "la" and "co"
+
                 if telescope == 'sa':
                     sys.exit('does not support cinv filter case for SA')
 
-                pw = prjlib.analysis_init(t=telescope,freq='com',fltr='cinv',snmin=snmin,snmax=snmax,ntype=ntype)
-                pI = prjlib.analysis_init(t='id',ntype='cv',snmin=snmin,snmax=snmax) # for cross
-                wn = prjlib.wfac(telescope,binary=True)
+                if telescope == 'id':
+                    sys.exit('does not support cinv filter case for idealistic case')
+
+                pw = prjlib.analysis_init(t=telescope,submap='com',fltr='cinv',snmin=snmin,snmax=snmax,ntype=ntype)
         
                 if telescope == 'la':
 
                     mtypes = ['T','E','B']
 
                     # filenames
-                    fmap = prjlib.filename_freqs(freqs,t=telescope,ntype=ntype)
+                    fmap = prjlib.filename_submaps(submaps,t=telescope,ntype=ntype)
  
                     # Temperature
                     cinv_params = {\
@@ -486,7 +518,7 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                         'ro' : 1, \
                         'filter' : 'W' \
                     }
-                    cinv(1,pw.rlz,telescope,4096,ntype,fmap,pw.fcmb.alms['o'],pw.lcl,freqs=freqs,**cinv_params,**kwargs_ov)
+                    cinv(1,pw.rlz,telescope,4096,ntype,fmap,pw.fcmb.alms['o'],pw.lcl,submaps=submaps,**cinv_params,**kwargs_ov)
 
                     # Polarization
                     cinv_params = {\
@@ -498,7 +530,7 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                         'ro' : 1, \
                         'filter' : 'W' \
                     }
-                    cinv(2,pw.rlz,telescope,4096,ntype,fmap,pw.fcmb.alms['o'],pw.lcl,freqs=freqs,**cinv_params,**kwargs_ov)
+                    cinv(2,pw.rlz,telescope,4096,ntype,fmap,pw.fcmb.alms['o'],pw.lcl,submaps=submaps,**cinv_params,**kwargs_ov)
 
 
                 if telescope == 'co':
@@ -527,12 +559,15 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                         'filter' : 'W' \
                     }
 
-                    fmapla = prjlib.filename_freqs(freqs,t='la',ntype=ntype)
-                    fmapsa = prjlib.filename_freqs(freqs,t='sa',ntype=ntype)
+                    fmapla = prjlib.filename_submaps(submaps,t='la',ntype=ntype)
+                    fmapsa = prjlib.filename_submaps(submaps,t='sa',ntype=ntype)
  
-                    cinv(2,pw.rlz,telescope,2048,ntype,fmapla,pw.fcmb.alms['o'],pw.lcl,freqs=freqs,fmapsa=fmapsa,**cinv_params,**kwargs_ov)
+                    cinv(2,pw.rlz,telescope,2048,ntype,fmapla,pw.fcmb.alms['o'],pw.lcl,submaps=submaps,fmapsa=fmapsa,**cinv_params,**kwargs_ov)
             
-                # aps
+                # compute aps
+                pI = prjlib.analysis_init(t='id',ntype='cv',snmin=snmin,snmax=snmax) # for cross with input
+                wn = prjlib.wfac(telescope,binary=True)
+
                 aps(pw.rlz,pw.lmax,pw.fcmb,wn[0],stype=['o'],mtype=mtypes,**kwargs_ov)
                 apsx(pw.rlz,pw.lmax,pw.fcmb,pI.fcmb,wn[0],mtype=mtypes,**kwargs_ov)
 

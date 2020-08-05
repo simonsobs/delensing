@@ -190,7 +190,7 @@ def interface(run=[],kwargs_ov={},kwargs_cmb={},kwargs_qrec={},ep=1e-30):
         ifl = ocl#p.lcl[0:3,:]
 
     elif p.fltr == 'cinv': # for C^-1 wiener-filtered alm
-        pc = prjlib.analysis_init(t=p.telescope,freq='com',fltr='none',ntype=p.ntype)
+        pc = prjlib.analysis_init(t=p.telescope,submap='com',fltr='none',ntype=p.ntype)
         
         # Compute aps appropriate for C^-1 filtering case. 
         ocl, ifl = quad_filter(p.fcmb.scl,pc.fcmb.scl,p.lmax,p.lcl,lTmin=p.lTmin,lTmax=p.lTmax)

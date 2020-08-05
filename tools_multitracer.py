@@ -14,6 +14,7 @@ import misctools
 import prjlib
 import tools_lens
 
+# This file is a modified version of https://github.com/abaleato/MultitracerSims4Delensing/blob/master/multsims/MultitracerSims4Delensing.py
 
 class mass_tracer():
     # define object which has parameters and filenames for multitracer analysis
@@ -42,7 +43,7 @@ class mass_tracer():
         
         self.klist = { **self.klist_cmb, **self.klist_gal, **self.klist_cib }
         self.klist_ext = { **self.klist_gal, **self.klist_cib }
-        print(self.klist)
+        #print(self.klist)
         
         self.lmin = lmin
         self.lmax = lmax
@@ -69,10 +70,6 @@ class mass_tracer():
         qtag = glob.stag + qobj.ltag
         self.fcklm = [ d['del'] + 'mass/comb_' + qtag + '_' + '-'.join(self.klist.keys()) + '_' + str(i) + '.pkl' for i in ids ]
 
-        # gaussian mass tracer
-        #self.fgalm = [ d['root'] + 'multitracer_forBBgroup/combined_phi_alms_noiselessE_mvkappa_simid_'+str(i)+'.npy' for i in range(200)]
-
-    
 
 def read_phi_alms(phi_alm_file, lmax):
     phi_alm = hp.read_alm(phi_alm_file)
@@ -304,7 +301,7 @@ def interface( run=['gen_alm','comb'], kwargs_ov={}, kwargs_cmb={}, kwargs_qrec=
 
     # load parameters and filenames
     kwargs_cmb['t']    = 'la'
-    kwargs_cmb['freq'] = 'com'
+    kwargs_cmb['submap'] = 'com'
     glob = prjlib.analysis_init( **kwargs_cmb )
     qobj = tools_lens.init_qobj( glob.stag, glob.doreal, **kwargs_qrec )
     mobj = mass_tracer( glob, qobj, **kwargs_mass )
@@ -357,7 +354,10 @@ def interface( run=['gen_alm','comb'], kwargs_ov={}, kwargs_cmb={}, kwargs_qrec=
             alms = np.zeros( ( mobj.nkap, mobj.lmax+1, mobj.lmax+1 ), dtype=np.complex )
             
             for k, n in mobj.klist_cmb.items():
-                alms[n,:,:] = tools_lens.load_klms( qobj.f[k].alm[i], mobj.lmax, fmlm = qobj.f[k].mfb[i] )
+                if 'iso' in glob.ntype:
+                    alms[n,:,:] = tools_lens.load_klms( qobj.f[k].alm[i], mobj.lmax )
+                else:
+                    alms[n,:,:] = tools_lens.load_klms( qobj.f[k].alm[i], mobj.lmax, fmlm = qobj.f[k].mfb[i] )
 
             for k, n in mobj.klist_ext.items():
                 alms[n,:,:] = pickle.load( open(mobj.fklm[k][i],"rb") )

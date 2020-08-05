@@ -17,12 +17,13 @@ import tools_multitracer
 # Define delensing filenames
 class delens:
 
-    def __init__(self,olmax=2048,elmin=20,elmax=2048,klmin=20,klmax=2048,nside=2048,klist=['TT'],kfltr='',etype=''):
+    def __init__(self,olmax=2048,elmin=20,elmax=2048,klmin=20,klmax=2048,nside=2048,klist=['TT'],kfltr='',emap='',enoise=''):
 
         conf = misctools.load_config('DELENSING')
 
-        # etype
-        self.etype = etype
+        # E-mode map and noise type
+        self.emap = emap
+        self.enoise = enoise
 
         # kappa type
         self.klist = klist
@@ -133,11 +134,13 @@ def template_alm(rlz,klist,qf,elmin,elmax,klmin,klmax,fElm,fdlm,wlk,fgalm='',olm
                     wplm = wlk[k][:klmax+1,None] * tools_lens.load_klms( qf[k].alm[i], klmax, fmlm=qf[k].mfb[i] )
                 else:
                     wplm = wlk[k][:klmax+1,None] * tools_lens.load_klms( qf[k].alm[i], klmax )
-            
+
+            # This feature will be removed
             elif k == 'ALLid':
-                Glm = np.load( fgalm[i] )
+                Glm = np.load( '/project/projectdirs/sobs/delensing/multitracer_forBBgroup/coadded_tracers/combined_phi_alms_noiselessE_mvkappa_simid_'+str(i)+'.npy' )
+                Glmax = 2007
                 glm = 0.*wElm
-                glm[20:glmax+1,:glmax+1] = curvedsky.utils.lm_healpy2healpix( len(Glm), Glm, glmax )[20:,:]
+                glm[20:Glmax+1,:Glmax+1] = curvedsky.utils.lm_healpy2healpix( len(Glm), Glm, Glmax )[20:,:]
                 wplm = glm * wlk[k][:klmax+1,None] #* kL[:dlmax+1,None]
                 wplm[:klmin,:] = 0.
                 
@@ -226,19 +229,19 @@ def compute_coeff(rlz,fdlm,fblm,frho,W,olmax=1024,klist=['TT','TE','EE','EB']):
 
 def interface(run_del=[],kwargs_ov={},kwargs_cmb={},kwargs_qrec={},kwargs_mass={},kwargs_del={},klist_cmb=['TT','TE','EE','EB']):
 
-    freq = kwargs_cmb.pop('freq')
+    submap = kwargs_cmb.pop('submap')
 
     # //// prepare E modes //// #
-    if kwargs_del['etype'] == 'id':
-        pE = prjlib.analysis_init(t='id',freq='cocom',ntype=kwargs_cmb['ntype'])
+    if kwargs_del['emap'] == 'id':
+        pE = prjlib.analysis_init(t='id',ntype='cv')
+        kwargs_del['enoise'] = 'cv'
 
-    if kwargs_del['etype'] == 'co':
-        #pE = prjlib.analysis_init(t='co',freq='com',fltr='cinv',ntype='base')
-        pE = prjlib.analysis_init(t='co',freq='com',fltr='cinv',ntype=kwargs_cmb['ntype'].replace('_iso',''))
+    if kwargs_del['emap'] == 'co':
+        pE = prjlib.analysis_init(t='co',submap='com',fltr='cinv',ntype=kwargs_del['enoise'].replace('_iso',''))
 
     # //// prepare phi //// #
     # define object
-    glob = prjlib.analysis_init( freq='com', **kwargs_cmb )
+    glob = prjlib.analysis_init( submap='com', **kwargs_cmb )
     qobj = tools_lens.init_qobj( glob.stag, glob.doreal, **kwargs_qrec )
     mobj = tools_multitracer.mass_tracer( glob, qobj, **kwargs_mass )
     dobj = init_template( glob.stag+qobj.ltag, mobj.klist, pE.stag, glob.doreal, **kwargs_del )

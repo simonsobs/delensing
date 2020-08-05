@@ -66,7 +66,7 @@ def rlz_index(doreal=False):
 # Define CMB file names
 class cmb:
 
-    def __init__(self,t,nside,freq,ntype,stag,doreal):
+    def __init__(self,t,nside,sub,ntype,stag,doreal):
 
         #set directory
         d = data_directory()
@@ -78,12 +78,12 @@ class cmb:
 
         #cmb signal map
         if t=='id': # use LAT signal sim
-            self.lcdm = [d_map+'/cmb_uKCMB_la145_nside'+str(nside)+'_'+x+'.fits' for x in ids]
+            self.lcdm = [d_map+'/cmb_uKCMB_la00_nside'+str(nside)+'_'+x+'.fits' for x in ids]
         else:
-            self.lcdm = [d_map+'/cmb_uKCMB_'+t+freq+'_nside'+str(nside)+'_'+x+'.fits' for x in ids]
+            self.lcdm = [d_map+'/cmb_uKCMB_'+t+sub+'_nside'+str(nside)+'_'+x+'.fits' for x in ids]
 
         #cmb noise map
-        self.nois = [d_map+'/noise_uKCMB_'+t+freq+'_'+ntype+'_nside'+str(nside)+'_'+x+'.fits' for x in ids]
+        self.nois = [d_map+'/noise_uKCMB_'+t+sub+'_'+ntype+'_nside'+str(nside)+'_'+x+'.fits' for x in ids]
 
         #cmb alm/aps
         self.alms = {}
@@ -109,7 +109,7 @@ class cmb:
 # Define parameters, filename and array
 class analysis:
 
-    def __init__(self,t='la',freq='',ntype='base_roll50',fltr='none',lmin=2,snmin=1,snmax=10,lTmin=500,lTmax=3000,ascale=5.):
+    def __init__(self,t='la',submap='',ntype='base_roll50',fltr='none',lmin=2,snmin=1,snmax=10,lTmin=500,lTmax=3000,ascale=5.):
 
         #//// load config file ////#
         #config = configparser.ConfigParser()
@@ -126,7 +126,7 @@ class analysis:
         # la --- LAT (default)
         # sa --- SAT
         # co --- SAT + LAT
-        # id --- fullsky, isotropic noise
+        # id --- fullsky, no noise
         self.telescope = conf.get('telescope',t)
 
         # minimum/maximum of realization index to be analyzed
@@ -141,15 +141,18 @@ class analysis:
         self.snum  = self.snmax - self.snmin + 1
         self.rlz   = np.linspace(self.snmin,self.snmax,self.snum,dtype=np.int)
 
-        # CMB frequency
-        self.freq = conf.get('freq',freq)
+        # map sub index
+        self.submap = conf.get('submap',submap)
+        if t == 'id':
+            self.submap = ''
   
         # CMB alms filtering
         self.fltr = conf.get('fltr',fltr)
             
         # apodization scale
         self.ascale = conf.getfloat('ascale',ascale)
-        if self.telescope=='id':  self.ascale = 0.
+        if t == 'id':  
+            self.ascale = 0.
 
         # CMB map noise type 
         # base --- SO baseline (default)
@@ -195,12 +198,8 @@ class analysis:
         else:
             wftag = '_mv3' + '_a'+str(self.ascale)+'deg_' + self.fltr
         
-        #ftag = ''
-        #if self.fltr != '': ftag = '_'+self.fltr
-        
         # specify CMB map
-        self.stag = self.telescope + self.freq + '_' + self.ntype + wftag
-        #self.stag = self.telescope + self.freq + ftag + '_' + self.ntype + wtag 
+        self.stag = self.telescope + self.submap + '_' + self.ntype + wftag
 
         # index for realizations e.g. 0001
         ids = rlz_index(doreal=self.doreal)
@@ -218,7 +217,7 @@ class analysis:
         self.fmask = window_name(self.telescope,ascale=self.ascale)
 
         # cmb map, alm and aps
-        self.fcmb = cmb(self.telescope,self.nside,self.freq,self.ntype,self.stag,self.doreal)
+        self.fcmb = cmb(self.telescope,self.nside,self.submap,self.ntype,self.stag,self.doreal)
 
 
     def array(self):  #construct array from parameters
@@ -264,20 +263,20 @@ def analysis_init(**kwargs):
 
 
 
-def filename_freqs(freqs,**kwargs):
-    # setup cmb filenames for frequencies
-    ffreq = {}
-    for freq in freqs:
-        fnu = analysis_init(freq=freq,**kwargs)
-        ffreq[freq] = fnu.fcmb
-    return ffreq
+def filename_submaps(maps,**kwargs):
+    # setup cmb filenames for sub maps
+    fmaps = {}
+    for sub in maps:
+        f = analysis_init(submap=sub,**kwargs)
+        fmaps[sub] = f.fcmb
+    return fmaps
 
 
 #-------------------------
 # SO beam, noise, window
 #-------------------------
 
-def get_beam(t,freq,lmax): # Return Gaussian beam function
+def get_beam_old(t,freq,lmax): # Return Gaussian beam function
 
     if t == 'sa': #SAT beam FWHM in arcmin
         if freq == '93':   theta = 30.
@@ -298,6 +297,52 @@ def get_beam(t,freq,lmax): # Return Gaussian beam function
     return 1./CMB.beam(theta,lmax)
 
 
+def get_beam(telescope,sub,lmax):
+
+    if telescope == 'la':
+        if sub=='00' or sub=='10':  
+            theta = 1.0
+        if sub=='01' or sub=='11':  
+            theta = 0.9
+        if sub=='20' or sub=='30' or sub=='40' or sub=='50':  
+            theta = 2.2
+        if sub=='21' or sub=='31' or sub=='41' or sub=='51':  
+            theta = 1.4
+        if sub=='60':  
+            theta = 7.4
+        if sub=='61':  
+            theta = 5.1
+
+    if telescope == 'sa':
+        if sub=='00': 
+            theta = 19.0
+        if sub=='01':
+            theta = 17.0
+        if sub=='10' or sub=='20':
+            theta = 42.0
+        if sub=='11' or sub=='21':
+            theta = 27.0
+        if sub=='30':
+            theta = 144.0
+        if sub=='31':
+            theta = 99.0
+    
+    if telescope == 'id': #use LT0-0
+        theta = 1.0
+
+    # compute 1D Gaussian beam function from cmblensplus/utils/cmb.py
+    return 1./CMB.beam(theta,lmax)
+
+
+def get_beams(t,lmax,submaps):
+
+    bl = np.ones((len(nu),lmax+1))
+    
+    for i, submap in enumerate(submaps):
+        bl[i,:] = get_beam(t,submap,lmax)
+    return bl
+
+    
 def get_polnoise_params(t,freq): # Return parameters for SO polarization noise
 
     # sigma = \sigma_P in muK-arcmin
@@ -361,20 +406,25 @@ def nlofficial(ntype='baseline',deproj=0,cols=(1,2,3,4,5,6),dimless=False,lmax=N
     # set directory
     d = data_directory()
     rootdir = d['pub'] + 'noise/'
+    
+    if ntype == 'base':
+        ntypetag = 'baseline'
+    else:
+        ntypetag = ntype
 
     # load noise at each frequency
     if deproj==-1:
-        Nt = np.loadtxt(rootdir+'SO_LAT_Nell_T_'+ntype+'_fsky0p4.txt',unpack=True,usecols=cols)
-        Np = np.loadtxt(rootdir+'SO_LAT_Nell_P_'+ntype+'_fsky0p4.txt',unpack=True,usecols=cols)
+        Nt = np.loadtxt(rootdir+'SO_LAT_Nell_T_'+ntypetag+'_fsky0p4.txt',unpack=True,usecols=cols)
+        Np = np.loadtxt(rootdir+'SO_LAT_Nell_P_'+ntypetag+'_fsky0p4.txt',unpack=True,usecols=cols)
         # simple optimal combination
         NT = 1./np.sum(1./Nt,axis=0)
         NE = 1./np.sum(1./Np,axis=0)
         NB = 1./np.sum(1./Np,axis=0)
 
     if deproj>=0:
-        NT = np.loadtxt(rootdir+'SO_LAT_Nell_T_'+ntype+'_fsky0p4_ILC_CMB.txt',unpack=True)[deproj+1]
-        NE = np.loadtxt(rootdir+'SO_LAT_Nell_P_'+ntype+'_fsky0p4_ILC_CMB_E.txt',unpack=True)[deproj+1]
-        NB = np.loadtxt(rootdir+'SO_LAT_Nell_P_'+ntype+'_fsky0p4_ILC_CMB_B.txt',unpack=True)[deproj+1]
+        NT = np.loadtxt(rootdir+'SO_LAT_Nell_T_'+ntypetag+'_fsky0p4_ILC_CMB.txt',unpack=True)[deproj+1]
+        NE = np.loadtxt(rootdir+'SO_LAT_Nell_P_'+ntypetag+'_fsky0p4_ILC_CMB_E.txt',unpack=True)[deproj+1]
+        NB = np.loadtxt(rootdir+'SO_LAT_Nell_P_'+ntypetag+'_fsky0p4_ILC_CMB_B.txt',unpack=True)[deproj+1]
 
     if dimless: # remove uK^2
         NT /= constants.Tcmb**2
@@ -466,6 +516,7 @@ def hitmap_filename(telescope,nside):
 
     d = data_directory()
     f = d['hit'] + telescope.lower() + '_n'+str(nside).zfill(4)+'.fits'
+    
     return f
 
 
@@ -488,6 +539,19 @@ def loadocl(filename,lTmin=None,lTmax=None):
     if lTmax is not None:  cls[0,lTmax+1:] = 1e30
     
     return cls
+
+
+def calc_wfactor(w,n=5,ep=1e-30):
+    
+    wn = np.zeros(n)
+    for n in range(1,n):
+        wn[n] = np.average(w**n)
+
+    # binary mask
+    m  = w/(w+ep)
+    wn[0] = np.average(m)
+
+    return wn
 
 
 #---------------------
