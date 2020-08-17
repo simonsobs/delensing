@@ -7,10 +7,7 @@ import sys
 import tqdm
 
 # from SO pipeline
-from mapsims import SONoiseSimulator
-from mapsims import SOStandalonePrecomputedCMB
-from mapsims import SOChannel
-from mapsims import noise
+from mapsims import SONoiseSimulator, SOStandalonePrecomputedCMB, SOChannel, noise
 
 # from cmblensplus/wrap/
 import curvedsky as CS
@@ -75,7 +72,9 @@ class sim_map:
 
         ch  = SOChannel(self.telescope,self.band)
         print(ch.center_frequency.value)
-    
+        #ch.beam = prjlib.get_fwhm(str.lower(self.telescope),str(self.band))
+        print(ch.beam)
+
         if self.verbose:  print(self.mode,self.roll)
 
         for i in tqdm.tqdm(self.rlz,ncols=100,desc='generate map'):
@@ -241,7 +240,7 @@ def getbeam(t,lmax,nu=['93','145','225']):
 
 class wiener_objects:
 
-    def __init__(self,t,tqu,freqs,ntype,nside):
+    def __init__(self,t,tqu,freqs,ntype,nside,lmax):
 
         self.t     = t
         self.tqu   = tqu
@@ -263,25 +262,31 @@ class wiener_objects:
                 self.sigma = np.array([2.6,3.3,6.3])
             if 'goal' in ntype:
                 self.sigma = np.array([1.9,2.1,4.2])
-
+                
         self.npix  = 12*self.nside**2
 
-        self.bl = getbeam(t,self.lmax,nu=freqs)
+        self.bl = getbeam(t,lmax,nu=freqs)
         if self.nside != self.Nside:
-            self.bl *= hp.sphtfunc.pixwin(self.nside)[:self.lmax+1] / hp.sphtfunc.pixwin(self.Nside)[:self.lmax+1]
+            Lmax = min(lmax,self.lmax)
+            self.bl[:,:Lmax+1] *= hp.sphtfunc.pixwin(self.nside,lmax=self.lmax)[:Lmax+1] / hp.sphtfunc.pixwin(self.Nside,lmax=self.lmax)[:Lmax+1]
+        #if t=='sa':
+        #    self.bl = self.bl**2 # Empirical factor to suppress SAT contribution a bit at high ell. This is for increasing optimality a bit. 
 
         self.maps = np.zeros((tqu,len(freqs),self.npix))
         self.invN = np.zeros((tqu,len(freqs),self.npix))
 
         self.W = prjlib.hitmap(t,self.nside) 
         self.M, __ = prjlib.window(t,nside=self.nside,ascale=0.)
-        #if t=='sa': 
-        #    self.M = hp.pixelfunc.ud_grade(hp.fitsfunc.read_map('../../data/sodelens/mask/mask_apodized.fits'),self.nside)
-        #    self.M = self.M/(self.M+1e-30)
-        #self.M *= self.W/(self.W+1e-30) # further multiplying hitcount binary mask
+        #self.M = self.W/(self.W+1e-30)
+        
+        #if t=='sa':
+        #    Mla, __ = prjlib.window('la',nside=self.nside,ascale=0.)
+        #    self.M[Mla==0] = 0
+        
+        #self.W[self.M==0] = 0
+        
 
-
-    def load_maps(self,fmap,i,Tcmb=2.72e6,verbose=False):
+    def load_maps(self,fmap,i,Tcmb=2.72e6,verbose=False): # T or Q/U maps are loaded 
 
         for ki, freq in enumerate(self.freqs):
         
@@ -309,27 +314,31 @@ class wiener_objects:
             self.invN[0,ki,:] = self.W * (sigma*(np.pi/10800.)/Tcmb)**(-2)
 
             if self.tqu == 2:
-                self.invN[:,ki,:] *= 2.
+                self.invN[:,ki,:] /= 2.
                 self.invN[1,ki,:] = self.invN[0,ki,:]
 
 
 
 def cinv_core(i,t,wla,wsa,lmax,falm,cl,lTmax=1000,lTcut=100,**kwargs):
 
+    # number of frequencies
     mn  = len(wla.bl[:,0])
 
-    if wla.tqu==1:
-        if t == 'la':
+    if wla.tqu==1: # temperature only case
+        if t == 'la': # will run only for lAT
             cl[0,:lTcut+1] = 0.
             Tlm = CS.cninv.cnfilter_freq(1,mn,wla.nside,lmax,cl[0:1,:],wla.bl,wla.invN,wla.maps,**kwargs)
-            pickle.dump((Tlm),open(falm['T'][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
+        
+        # output alms
+        pickle.dump((Tlm),open(falm['T'][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
 
-    if wla.tqu==2:
-        if t == 'co':
-            Elm, Blm = CS.cninv.cnfilter_freq_nside(2,mn,mn,wla.nside,wsa.nside,lmax,cl[1:3,:],wla.bl[:,:lmax+1],wsa.bl,wla.invN,wsa.invN,wla.maps,wsa.maps,**kwargs)
-        if t == 'la':
+    if wla.tqu==2: # polarization only case
+        if t == 'co': # for SAT+LAT
+            Elm, Blm = CS.cninv.cnfilter_freq_nside(2,mn,mn,wla.nside,wsa.nside,lmax,cl[1:3,:],wla.bl,wsa.bl,wla.invN,wsa.invN,wla.maps,wsa.maps,**kwargs)
+        if t == 'la': # for LAT
             Elm, Blm = CS.cninv.cnfilter_freq(2,mn,wla.nside,lmax,cl[1:3,:],wla.bl,wla.invN,wla.maps,**kwargs)
 
+        # output alms
         pickle.dump((Elm),open(falm['E'][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
         pickle.dump((Blm),open(falm['B'][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -339,14 +348,14 @@ def cinv(tqu,rlz,t,lmax,ntype,fmap,falm,cl,freqs=[],fmapsa='',overwrite=False,ve
 
     # prepare objects for wiener filtering
     if t == 'la':
-        wla = wiener_objects('la',tqu,freqs,ntype,kwargs['nsides'][0])
+        wla = wiener_objects('la',tqu,freqs,ntype,kwargs['nsides'][0],lmax)
     if t == 'co':
-        wla = wiener_objects('la',tqu,freqs,ntype,kwargs['nsides0'][0])
+        wla = wiener_objects('la',tqu,freqs,ntype,kwargs['nsides0'][0],lmax)
     wiener_objects.load_invN(wla)
 
     wsa = None
     if t == 'co':
-        wsa = wiener_objects('sa',tqu,freqs,ntype,kwargs['nsides1'][0])
+        wsa = wiener_objects('sa',tqu,freqs,ntype,kwargs['nsides1'][0],lmax)
         wiener_objects.load_invN(wsa)
 
     # roll-off effect
@@ -486,7 +495,7 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                         'ro' : 1, \
                         'filter' : 'W' \
                     }
-                    cinv(1,pw.rlz,telescope,4096,ntype,fmap,pw.fcmb.alms['o'],pw.lcl,freqs=freqs,**cinv_params,**kwargs_ov)
+                    #cinv(1,pw.rlz,telescope,4096,ntype,fmap,pw.fcmb.alms['o'],pw.lcl,freqs=freqs,**cinv_params,**kwargs_ov)
 
                     # Polarization
                     cinv_params = {\
@@ -498,6 +507,17 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                         'ro' : 1, \
                         'filter' : 'W' \
                     }
+                    
+                    cinv_params = {\
+                        'chn' : 1, \
+                        'eps' : [1e-3], \
+                        'lmaxs' : [4096], \
+                        'nsides' : [2048], \
+                        'itns' : [1000], \
+                        'ro' : 1, \
+                        'filter' : 'W' \
+                    }
+                    
                     cinv(2,pw.rlz,telescope,4096,ntype,fmap,pw.fcmb.alms['o'],pw.lcl,freqs=freqs,**cinv_params,**kwargs_ov)
 
 
@@ -506,18 +526,19 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                     mtypes = ['E','B']
                     cinv_params = {\
                         'chn' : 6, \
-                        'eps' : [1e-5,.1,.1,.1,.1,0.], \
+                        'eps' : [1e-6,.1,.1,.1,.1,0.], \
                         'lmaxs' : [2048,1000,400,200,100,20], \
-                        'nsides0' : [1024,512,256,128,128,64], \
+                        'nsides0' : [1024,512,256,128,64,64], \
                         'nsides1' : [512,256,256,128,64,64], \
                         'itns' : [200,9,3,3,7,0], \
                         'ro' : 1, \
                         'reducmn' : 2, \
                         'filter' : 'W' \
                     }
+                    #'''
                     cinv_params = {\
                         'chn' : 1, \
-                        'eps' : [1e-5], \
+                        'eps' : [1e-3], \
                         'lmaxs' : [2048], \
                         'nsides0' : [1024], \
                         'nsides1' : [512], \
@@ -526,15 +547,16 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                         'reducmn' : 0, \
                         'filter' : 'W' \
                     }
+                    #'''
 
                     fmapla = prjlib.filename_freqs(freqs,t='la',ntype=ntype)
                     fmapsa = prjlib.filename_freqs(freqs,t='sa',ntype=ntype)
  
                     cinv(2,pw.rlz,telescope,2048,ntype,fmapla,pw.fcmb.alms['o'],pw.lcl,freqs=freqs,fmapsa=fmapsa,**cinv_params,**kwargs_ov)
-            
-                # aps
-                aps(pw.rlz,pw.lmax,pw.fcmb,wn[0],stype=['o'],mtype=mtypes,**kwargs_ov)
-                apsx(pw.rlz,pw.lmax,pw.fcmb,pI.fcmb,wn[0],mtype=mtypes,**kwargs_ov)
 
+                    aps(pw.rlz,pw.lmax,pw.fcmb,wn[0],stype=['o'],mtype=mtypes,**kwargs_ov)
+                    apsx(pw.rlz,pw.lmax,pw.fcmb,pI.fcmb,wn[0],mtype=mtypes,**kwargs_ov)
 
-
+        
+        
+                
