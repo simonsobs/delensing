@@ -26,7 +26,7 @@ def data_directory():
 
     root = '/project/projectdirs/sobs/delensing/'
     direct['root'] = root
-    direct['cls']  = root + 'official/planck_cls/'
+    direct['cls']  = root + 'official/sim_cls/'
     direct['win']  = root + 'mask/'
     direct['hit']  = root + 'hitmap/'
     direct['cmb']  = root + 'cmbsims/'
@@ -207,8 +207,10 @@ class analysis:
 
         #//// CAMB cls ////#
         # aps of best fit cosmology (currently PLANCK FFP10)
-        self.fucl = d['cls']+'ffp10_scalCls.dat'
-        self.flcl = d['cls']+'ffp10_lensedCls.dat'
+        #self.fucl = d['cls']+'ffp10_scalCls.dat'
+        #self.flcl = d['cls']+'ffp10_lensedCls.dat'
+        self.fucl = d['cls']+'cosmo2017_10K_acc3_scalCls.dat'
+        self.flcl = d['cls']+'cosmo2017_10K_acc3_lensedCls.dat'
 
         #//// Filenames ////#
         # input phi
@@ -230,21 +232,25 @@ class analysis:
         self.kL = self.l*(self.l+1)*.5
 
         #loading theoretical cl
+        self.ucl = CMB.read_camb_cls(self.fucl,output='array')[:,:self.lmax+1]
+        self.lcl = CMB.read_camb_cls(self.flcl,ftype='lens',output='array')[:,:self.lmax+1]
+        '''
         self.ucl = basic.aps.read_cambcls(self.fucl,self.lmin,self.lmax,5)/constants.Tcmb**2
         self.lcl = basic.aps.read_cambcls(self.flcl,self.lmin,self.lmax,4,bb=True)/constants.Tcmb**2
+        '''
 
         #rename cls
-        self.uTT = self.ucl[0,:]
-        self.uEE = self.ucl[1,:]
-        self.uTE = self.ucl[2,:]
-        self.lTT = self.lcl[0,:]
-        self.lEE = self.lcl[1,:]
-        self.lBB = self.lcl[2,:]
-        self.lTE = self.lcl[3,:]
+        self.uTT = self.ucl[0]
+        self.uEE = self.ucl[1]
+        self.uTE = self.ucl[2]
+        self.lTT = self.lcl[0]
+        self.lEE = self.lcl[1]
+        self.lBB = self.lcl[2]
+        self.lTE = self.lcl[3]
 
         #kappa cl
-        self.pp = self.ucl[3,:]
-        self.kk = self.ucl[3,:]*self.kL**2
+        self.pp = self.ucl[3]
+        self.kk = self.ucl[3]*self.kL**2
 
 
 #//////////////////////////////////////////////////
@@ -277,8 +283,10 @@ def filename_freqs(freqs,**kwargs):
 # SO beam, noise, window
 #-------------------------
 
-def get_beam(t,freq,lmax): # Return Gaussian beam function
 
+def get_fwhm(t,freq): # Return Gaussian beam FWHM (from the SO forecast paper)
+
+    print(t,freq)
     if t == 'sa': #SAT beam FWHM in arcmin
         if freq == '93':   theta = 30.
         if freq == '145':  theta = 17.
@@ -294,6 +302,14 @@ def get_beam(t,freq,lmax): # Return Gaussian beam function
     if t == 'id': #use LAT signal sims at 145GHz
         theta = 1.4
 
+    return theta
+
+
+def get_beam(t,freq,lmax): # Return Gaussian beam function
+
+    # get fwhm
+    theta = get_fwhm(t,freq)
+    
     # compute 1D Gaussian beam function from cmblensplus/utils/cmb.py
     return 1./CMB.beam(theta,lmax)
 
@@ -425,6 +441,11 @@ def window(t,nside=None,ascale=0.,ep=1e-30):
         fmask = window_name(t,ascale)
         w = hp.fitsfunc.read_map(fmask,verbose=False)
 
+        if t=='sa':
+            print('SAT mask is further multiplied by hit-count binary')
+            hit = hitmap(t,512) 
+            w[hit==0] = 0
+            
         if nside is not None:  
             w = hp.pixelfunc.ud_grade(w,nside)
     
