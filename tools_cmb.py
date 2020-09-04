@@ -366,7 +366,7 @@ def cinv(tqu,rlz,t,lmax,ntype,fmap,falm,cl,freqs=[],fmapsa='',overwrite=False,ve
     # start loop for realizations
     for i in tqdm.tqdm(rlz,ncols=100,desc='cinv'):
 
-        if misctools.check_path(falm['E'][i],overwrite=overwrite): continue
+        if misctools.check_path([falm['T'][i],falm['E'][i],falm['B'][i]],overwrite=overwrite): continue
 
         wiener_objects.load_maps(wla,fmap,i)
         if t=='co':
@@ -422,12 +422,15 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
             # need pre-computed frequency-coadded spectrum 
 
             if kwargs_cmb['fltr'] != 'none':
-                sys.exit('isotropic noise calculation is only valid for none-filtered case')
-    
+                sys.exit('isotropic noise calculation uses frequency-coadded spectra and is only valid for none-filtered case')
+
+            if telescope not in ['la','co']:
+                sys.exit('isotropic noise calculation only supports for la and co')
+
             if telescope in ['la','co']:
 
                 # for isotropic noise spectrum and diagonal wiener filtering
-                pc = prjlib.analysis_init(t=telescope,freq='com',snmin=snmin,snmax=snmax,ntype=ntype.replace('_iso',''))
+                pc  = prjlib.analysis_init(t=telescope,freq='com',fltr='none',snmin=snmin,snmax=snmax,ntype=ntype.replace('_iso',''))
                 ncl = prjlib.loadocl(pc.fcmb.scl['n'],lTmin=pc.lTmin,lTmax=pc.lTmax)
 
                 # setup filenames for input and output
@@ -495,7 +498,16 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                         'ro' : 1, \
                         'filter' : 'W' \
                     }
-                    #cinv(1,pw.rlz,telescope,4096,ntype,fmap,pw.fcmb.alms['o'],pw.lcl,freqs=freqs,**cinv_params,**kwargs_ov)
+                    cinv_params = {\
+                        'chn' : 1, \
+                        'eps' : [1e-5], \
+                        'lmaxs' : [4096], \
+                        'nsides' : [2048], \
+                        'itns' : [1000], \
+                        'ro' : 1, \
+                        'filter' : 'W' \
+                    }
+                    cinv(1,pw.rlz,telescope,4096,ntype,fmap,pw.fcmb.alms['o'],pw.lcl,freqs=freqs,**cinv_params,**kwargs_ov)
 
                     # Polarization
                     cinv_params = {\
@@ -510,7 +522,7 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                     
                     cinv_params = {\
                         'chn' : 1, \
-                        'eps' : [1e-3], \
+                        'eps' : [1e-5], \
                         'lmaxs' : [4096], \
                         'nsides' : [2048], \
                         'itns' : [1000], \
@@ -518,7 +530,7 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                         'filter' : 'W' \
                     }
                     
-                    cinv(2,pw.rlz,telescope,4096,ntype,fmap,pw.fcmb.alms['o'],pw.lcl,freqs=freqs,**cinv_params,**kwargs_ov)
+                    #cinv(2,pw.rlz,telescope,4096,ntype,fmap,pw.fcmb.alms['o'],pw.lcl,freqs=freqs,**cinv_params,**kwargs_ov)
 
 
                 if telescope == 'co':
@@ -540,7 +552,7 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                         'chn' : 1, \
                         'eps' : [1e-3], \
                         'lmaxs' : [2048], \
-                        'nsides0' : [1024], \
+                        'nsides0' : [2048], \
                         'nsides1' : [512], \
                         'itns' : [1000], \
                         'ro' : 1, \

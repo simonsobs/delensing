@@ -12,14 +12,15 @@ import tools_delens
 
 
 #run_qrec = ['norm','qrec','n0','mean','aps']
+#run_qrec = ['norm','qrec','mean']
 #run_qrec = ['n0','mean','aps']
 #run_qrec = ['norm','qrec','n0','rdn0','mean','aps','kcinv']
 #run_qrec = ['mean','aps']
 run_qrec = []
 
 #run_mass = ['gen_alm','comb']
-#run_mass = ['comb']
-run_mass = []
+run_mass = ['comb']
+#run_mass = []
 
 #run_del = ['alm','aps']
 run_del = ['alm','aps','rho']
@@ -31,6 +32,7 @@ kwargs_ov   = {\
     'verbose':True \
 }
 
+
 kwargs_cmb  = {\
     'snmin':1, \
     'snmax':100, \
@@ -40,13 +42,15 @@ kwargs_cmb  = {\
     't':'la', \
     #'ntype':'base_roll50', \
     #'ntype':'base_iso_roll50', \
-    'ntype':'goal_roll50', \
+    #'ntype':'goal_roll50', \
+    'ntype':'goal_iso_roll50', \
     'lTmin':500, \
     'lTmax':3000, \
     'fltr':'none', \
     #'fltr':'cinv', \
     'ascale':5.0, \
 }
+
 
 kwargs_qrec = {\
     'qlist':['TT','TE','EE','EB'], \
@@ -71,8 +75,9 @@ kwargs_mass = {\
 
 kwargs_del = {\
     'etype':'co',\
-    'klist':['TT','TE','EE','EB'],\
-    #'klist':['comb'],\
+    #'klist':['TT','TE','EE','EB'],\
+    'klist':['comb'],\
+    #'klist':['ALLid'],\
     #'kfltr':'cinv',\
     'kfltr':'none',\
     'olmax':2048,\

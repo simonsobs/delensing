@@ -135,7 +135,8 @@ def template_alm(rlz,klist,qf,elmin,elmax,klmin,klmax,fElm,fdlm,wlk,fgalm='',olm
                     wplm = wlk[k][:klmax+1,None] * tools_lens.load_klms( qf[k].alm[i], klmax )
             
             elif k == 'ALLid':
-                Glm = np.load( fgalm[i] )
+                D = prjlib.data_directory()['root']
+                Glm = np.load( D+'multitracer_forBBgroup/coadded_tracers/combined_phi_alms_noiselessE_mvkappa_simid_'+str(i)+'.npy' )
                 glm = 0.*wElm
                 glm[20:glmax+1,:glmax+1] = curvedsky.utils.lm_healpy2healpix( len(Glm), Glm, glmax )[20:,:]
                 wplm = glm * wlk[k][:klmax+1,None] #* kL[:dlmax+1,None]
@@ -243,23 +244,12 @@ def interface(run_del=[],kwargs_ov={},kwargs_cmb={},kwargs_qrec={},kwargs_mass={
     mobj = tools_multitracer.mass_tracer( glob, qobj, **kwargs_mass )
     dobj = init_template( glob.stag+qobj.ltag, mobj.klist, pE.stag, glob.doreal, **kwargs_del )
     
-    # change TT to none filter case
-    #if glob.fltr == 'cinv':
-    #    kwargs_cmb['fltr'] = 'none'
-    #    P = prjlib.analysis_init( freq='com', **kwargs_cmb )
-    #    Qobj = tools_lens.init_qobj( P.stag, P.doreal, **kwargs_qrec )
-    #    qobj.f['TT'] = Qobj.f['TT']
-
     # pre-filtering for CMB phi
     wlk = diag_wiener( qobj.f, glob.kk, dobj.klmin, dobj.klmax, kL=glob.kL, klist=dobj.klist )
 
     # only kcinv for TT is used
     if dobj.kfltr == 'cinv':
         print('does not support kfltr = cinv')
-    #    for k in ['TT']:
-    #        wlk[k] = 1./(1e-30+p.kL[:dobj.klmax+1])
-    #        qobj.f[k].alm = qobj.f[k].walm # replaced with kcinv
-    #        qobj.f[k].mfb = None
 
     # fullsky isotropic noise
     if 'iso' in glob.ntype:
@@ -272,16 +262,17 @@ def interface(run_del=[],kwargs_ov={},kwargs_cmb={},kwargs_qrec={},kwargs_mass={
         template_alm( glob.rlz, dobj.klist, qobj.f, dobj.elmin, dobj.elmax, dobj.klmin, dobj.klmax, pE.fcmb.alms['o']['E'], dobj.falm, wlk, fgalm=mobj.fcklm, olmax=dobj.olmax, **kwargs_ov )
 
     if 'aps' in run_del or 'rho' in run_del:
-        # prepare fullsky idealistic B mode
+        # prepare fullsky idealistic B modes
         kwargs_cmb['t'] = 'id'
         kwargs_cmb['ntype'] = 'cv'
         pid = prjlib.analysis_init(**kwargs_cmb)
+        # use overlapped region
         Wsa, __ = prjlib.window('sa')
         Wla, __ = prjlib.window('la',ascale=0.)
         Wsa *= hp.pixelfunc.ud_grade(Wla,512)
 
     if 'aps' in run_del:
-        # compute lensing template spectrum projected on SAT area #
+        # compute lensing template spectrum projected on SATxLAT area #
         template_aps( glob.rlz, dobj.falm, pid.fcmb.alms['o']['B'], dobj.cl, Wsa, olmax=dobj.olmax, klist=dobj.klist, **kwargs_ov ) # ignore E-to-B leakage
 
     if 'rho' in run_del:

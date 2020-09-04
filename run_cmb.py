@@ -13,7 +13,7 @@ import tools_delens
 
 #run_cmb = ['simmap']
 #run_cmb = ['simmap','calcalm']
-#run_cmb = ['calcalm']
+run_cmb = ['calcalm']
 
 
 kwargs_ov   = {\
@@ -31,7 +31,8 @@ kwargs_cmb  = {\
     #'t':'sa', \
     #'ntype':'base_roll50', \
     #'ntype':'base_iso_roll50', \
-    'ntype':'goal_roll50', \
+    #'ntype':'goal_roll50', \
+    'ntype':'goal_iso_roll50', \
     'lTmin':500, \
     'lTmax':3000, \
     'fltr':'none', \
