@@ -10,17 +10,9 @@ The current code depends on the following python modules:
   - mapsims (https://github.com/simonsobs/mapsims)
   - cmblensplus (https://toshiyan.github.io/clpdoc/html/)
 
-# Files
+# Run
 
-The main files for the analysis are as follows:
-
-  - simmap.py: generate simulated signal and noise maps for each frequency and patch
-  - cmb_map2alm.py: spherical harmonic transform of map to alm at each frequency and patch, and compute power spectra
-  - cmb_wiener.py: Optimally-combined alms from LAT and SAT with Wiener filtering.
-  - delens.py: construct lensing B-mode template and compute auto and cross spectra between lensing template and SAT B-modes
-  - gen_mass_sims.py: generate random Gaussian fields from the covariance of the mass-tracers. 
-  - prjlib.py: read and define parameters and filename for analysis and some functions
-  - params.ini: parameter file
+Please use run_cmb.py to generate CMB maps, alms and aps. Then, you can construct lensing template by running run_LT.py. 
 
 # Contacts
 
