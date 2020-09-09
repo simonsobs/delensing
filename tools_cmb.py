@@ -490,22 +490,14 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
  
                     # Temperature
                     cinv_params = {\
-                        'chn' : 7, \
-                        'eps' : [1e-4,.1,.1,.1,.1,.1,0.], \
-                        'lmaxs' : [4096,2048,2048,1024,512,256,20], \
-                        'nsides' : [2048,2048,1024,512,256,128,64], \
-                        'itns' : [100,5,5,5,5,5,0], \
-                        'ro' : 1, \
-                        'filter' : 'W' \
-                    }
-                    cinv_params = {\
                         'chn' : 1, \
                         'eps' : [1e-5], \
                         'lmaxs' : [4096], \
                         'nsides' : [2048], \
                         'itns' : [1000], \
                         'ro' : 1, \
-                        'filter' : 'W' \
+                        'filter' : 'W', \
+                        'inl' : inl
                     }
                     cinv(1,pw.rlz,telescope,4096,ntype,fmap,pw.fcmb.alms['o'],pw.lcl,freqs=freqs,**cinv_params,**kwargs_ov)
 
@@ -519,7 +511,6 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                         'ro' : 1, \
                         'filter' : 'W' \
                     }
-                    
                     cinv_params = {\
                         'chn' : 1, \
                         'eps' : [1e-5], \
@@ -529,7 +520,6 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                         'ro' : 1, \
                         'filter' : 'W' \
                     }
-                    
                     #cinv(2,pw.rlz,telescope,4096,ntype,fmap,pw.fcmb.alms['o'],pw.lcl,freqs=freqs,**cinv_params,**kwargs_ov)
 
 
@@ -568,7 +558,4 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
 
                     aps(pw.rlz,pw.lmax,pw.fcmb,wn[0],stype=['o'],mtype=mtypes,**kwargs_ov)
                     apsx(pw.rlz,pw.lmax,pw.fcmb,pI.fcmb,wn[0],mtype=mtypes,**kwargs_ov)
-
         
-        
-                

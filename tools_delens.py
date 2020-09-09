@@ -124,7 +124,6 @@ def template_alm(rlz,klist,qf,elmin,elmax,klmin,klmax,fElm,fdlm,wlk,fgalm='',olm
             
             # load E mode
             wElm = pickle.load(open(fElm[i],"rb"))[:elmax+1,:elmax+1]
-            #wElm = pickle.load(open(fElm[i].replace('base_maskv3_a5.0deg','base'),"rb"))[:elmax+1,:elmax+1]
             wElm[:elmin,:] = 0.
 
             # load kappa
@@ -168,10 +167,10 @@ def template_aps(rlz,fdlm,fBlm,fcl,W,olmax=2048,klist=['TT','TE','EE','EB'],**kw
             if misctools.check_path(fcl[k][i],**kwargs_ov): continue
             
             dalm = pickle.load(open(fdlm[k][i],"rb"))[0:olmax+1,0:olmax+1]
-            wdlm = curvedsky.utils.mulwin_spin(nside,olmax,olmax,2,0*dalm,dalm,W)[1]
+            wdlm = curvedsky.utils.mulwin_spin(0*dalm,dalm,W)[1]
             
             Balm = pickle.load(open(fBlm[i],"rb"))[:olmax+1,:olmax+1]
-            wBlm = curvedsky.utils.mulwin_spin(nside,olmax,olmax,2,0*Balm,Balm,W)[1]
+            wBlm = curvedsky.utils.mulwin_spin(0*Balm,Balm,W)[1]
             
             clbb = curvedsky.utils.alm2cl(olmax,wBlm)
             cldd = curvedsky.utils.alm2cl(olmax,wdlm)
@@ -189,35 +188,29 @@ def compute_coeff(rlz,fdlm,fblm,frho,W,olmax=1024,klist=['TT','TE','EE','EB']):
     vec = np.zeros((len(rlz),len(klist),olmax+1))
     mat = np.zeros((len(rlz),len(klist),len(klist),olmax+1))
     
-    #bb = 0.
-    #mvec = np.zeros((len(klist),olmax+1))
-    #mmat = np.zeros((len(klist),len(klist),olmax+1))
     for ii, i in enumerate(tqdm.tqdm(rlz,ncols=100,desc='compute coeff')):
         
         dalm = {}
     
         for k in klist:
             dalm[k] = pickle.load(open(fdlm[k][i],"rb"))[0:olmax+1,0:olmax+1]
-            dalm[k] = curvedsky.utils.mulwin_spin(nside,olmax,olmax,2,0*dalm[k],dalm[k],W)[1]
+            dalm[k] = curvedsky.utils.mulwin_spin( 0*dalm[k], dalm[k], W )[1]
         
         Balm = pickle.load(open(fblm[i],"rb"))[0:olmax+1,0:olmax+1]
-        wBlm = curvedsky.utils.mulwin_spin(nside,olmax,olmax,2,0*Balm,Balm,W)[1]
+        wBlm = curvedsky.utils.mulwin_spin( 0*Balm, Balm, W )[1]
         cbb[ii,:] = curvedsky.utils.alm2cl(olmax,wBlm)
-        #bb += curvedsky.utils.alm2cl(olmax,wBlm)/len(rlz)
         
         for ki, k0 in enumerate(klist):
             vec[ii,ki,:] = curvedsky.utils.alm2cl(olmax,dalm[k0],wBlm)
-            #mvec[ki,:] += curvedsky.utils.alm2cl(olmax,dalm[k0],wBlm)/len(rlz)
             for kj, k1 in enumerate(klist):
+                if ki>kj: continue
                 mat[ii,ki,kj,:] = curvedsky.utils.alm2cl(olmax,dalm[k0],dalm[k1])
-                #mmat[ki,kj,:] += curvedsky.utils.alm2cl(olmax,dalm[k0],dalm[k1])/len(rlz)
+                mat[ii,kj,ki,:] = mat[ii,ki,kj,:]
     
     bb, mvec, mmat = np.mean(cbb,axis=0),  np.mean(vec,axis=0),  np.mean(mat,axis=0)
 
     # compute correlation coefficients
-    rho = np.zeros(olmax+1)
-    for l in range(2,olmax):
-        rho[l] = np.dot(mvec[:,l],np.dot(np.linalg.inv(mmat[:,:,l]),mvec[:,l]))
+    rho = np.array([ np.dot(mvec[:,l],np.dot(np.linalg.inv(mmat[:,:,l]),mvec[:,l])) for l in range(2,olmax)])
 
     # save to file
     L = np.linspace(0,olmax,olmax+1)
@@ -267,8 +260,8 @@ def interface(run_del=[],kwargs_ov={},kwargs_cmb={},kwargs_qrec={},kwargs_mass={
         kwargs_cmb['ntype'] = 'cv'
         pid = prjlib.analysis_init(**kwargs_cmb)
         # use overlapped region
-        Wsa, __ = prjlib.window('sa')
-        Wla, __ = prjlib.window('la',ascale=0.)
+        Wsa = prjlib.window('sa')[0]
+        Wla = prjlib.window('la',ascale=0.)[0]
         Wsa *= hp.pixelfunc.ud_grade(Wla,512)
 
     if 'aps' in run_del:

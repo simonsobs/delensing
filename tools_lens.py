@@ -27,44 +27,81 @@ def load_klms(falm,lmax,fmlm=None):
     return klm
 
 
-def klm_debiased(qobjf,i,lmax):
+def compute_kcninv(qobj,rlz,ckk,lmax=2048,nside=2048,klmin=10,chn=1,eps=[1e-5],itns=[100],qlist=['TT'],**kwargs_ov):
 
-    klm = pickle.load(open(qobjf.alm[i],"rb"))[0][:lmax+1,:lmax+1]
-    mlm = pickle.load(open(qobjf.mfb[i],"rb"))[0][:lmax+1,:lmax+1]
-    klm -= mlm
+    npix = 12*nside**2
 
-    return klm
+    M, __ = prjlib.window('la',ascale=0.) # survey boundary
+    bl = np.ones((1,lmax+1)) # no beam effect
+    cl = np.reshape(ckk[:lmax+1],(1,lmax+1)) # theory cl
+
+    #win, __ = prjlib.window('la',ascale=5.) # apodized window already multiplied to phi alms
+    #win = prjlib.hitmap('la',nside)
+    #win = win**2 * M
+    #win = win**0.5*M
+
+    for q in tqdm.tqdm(qlist,ncols=100,desc='kcinv'):
+
+        # inverse noise spectrum
+        Al = (np.loadtxt(qobj.f[q].al)).T[1]
+        inl = 1./Al[:lmax+1]
+        inl[:klmin] = 0.
+        inl = np.reshape( inl, (1,1,lmax+1) )
+
+        wfac = np.sum(Al[:lmax+1]*(2*np.linspace(0,lmax,lmax+1)+1)/4./np.pi)
+
+        # inverse noise covariance
+        Nkk  = np.reshape( pickle.load(open(qobj.f[q].nkmap,"rb")), (1,1,npix) ) / wfac
+        #iNkk = np.reshape( M/(Nkk**0.5+1e-30), (1,1,npix) )
+        iNkk = np.reshape( M, (1,1,npix) )
+
+        for i in tqdm.tqdm(rlz,ncols=100,desc='each rlz ('+q+'):',leave=False):
+
+            # pre-multiply 1/W^2
+            klm = load_klms( qobj.f[q].alm[i], lmax, fmlm=qobj.f[q].mfb[i] )
+            klm[:klmin,:] = 0.
+            #kap = np.reshape( M/(win+1e-60) * curvedsky.utils.hp_alm2map(nside,lmax,lmax,klm), (1,1,npix) )
+            kap = np.reshape( M/(Nkk**0.5+1e-30) * curvedsky.utils.hp_alm2map(nside,lmax,lmax,klm), (1,1,npix) )
+
+            # cinv solver
+            wklm = curvedsky.cninv.cnfilter_freq(1,1,nside,lmax,cl,bl,iNkk,kap,chn=1,eps=eps,lmaxs=[lmax],nsides=[nside],itns=itns,ro=1,filter='W',verbose=True,inl=inl)
+            
+            # save
+            pickle.dump((wklm),open(qobj.f[q].walm[i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def compute_knoise(rlz,qobjf,W,M,iW2,fpalm,lmax,verbose=True,qlist=['TT'],lmin=10,ep=1e-40):
-    # used for compute_kcninv
+#def compute_knoise(rlz,qobjf,W,iW2,fpalm,lmax,verbose=True,lmin=10,ep=1e-40):
+def compute_knoise(rlz,qobjf,lmax,nside=2048,verbose=True,lmin=10,ep=1e-40):
+    # used for compute_kcninv_sim
 
-    nside = hp.pixelfunc.get_nside(W)
+    #nside = hp.pixelfunc.get_nside(W)
     nkap  = 0.
+    #M = W/(W+ep)
         
     for i in tqdm.tqdm(rlz,ncols=100,desc='knoise',leave=False):
 
-        rklm = klm_debiased(qobjf,i,lmax)
+        rklm = load_klms(qobjf.alm[i],lmax,fmlm=qobjf.mfb[i])
         rklm[:lmin,:] = 0.
         rkap = curvedsky.utils.hp_alm2map(nside,lmax,lmax,rklm)
 
-        iklm = prjlib.load_input_plm(fpalm[i],lmax,ktype='k')
-        iklm = curvedsky.utils.mulwin(nside,lmax,lmax,iklm,W**2)
-        iklm[:lmin,:] = 0.
-        ikap = curvedsky.utils.hp_alm2map(nside,lmax,lmax,iklm)
+        #iklm = prjlib.load_input_plm(fpalm[i],lmax,ktype='k')
+        #iklm[:lmin,:] = 0.
+        #iklm = curvedsky.utils.mulwin(iklm,W)
+        #ikap = curvedsky.utils.hp_alm2map(nside,lmax,lmax,iklm)
 
-        nkap += iW2**2 * (rkap-ikap)**2/len(rlz)
+        nkap += rkap**2/len(rlz)
+        #nkap += iW2**2 * (rkap-ikap)**2/len(rlz)
     
     #inkap = M/(nkap+ep)*(lmax-lmin)*(lmin+lmax+2.)/(4*np.pi)
-    inkap = M/(nkap+ep)/(4*np.pi)
-        
-    pickle.dump((inkap),open(qobjf.nkmap,"wb"),protocol=pickle.HIGHEST_PROTOCOL)
+    #inkap = M/(nkap+ep)/(4*np.pi)
     
-    return inkap
+    pickle.dump((nkap),open(qobjf.nkmap,"wb"),protocol=pickle.HIGHEST_PROTOCOL)
+    #pickle.dump((inkap),open(qobjf.nkmap,"wb"),protocol=pickle.HIGHEST_PROTOCOL)
+    
+    return nkap
 
 
-
-def compute_kcninv(qobjf,rlz,fltr,ckk,fpalm,nside=2048,Snmin=1,Snmax=100,klmin=10,chn=1,eps=[1e-5],itns=[100],lmaxs=[0],nsides=[0],qlist=['TT'],**kwargs_ov):
+def compute_kcninv_sim(qobjf,rlz,fltr,ckk,nside=2048,Snmin=1,Snmax=100,klmin=10,chn=1,eps=[1e-5],itns=[100],lmaxs=[0],nsides=[0],qlist=['TT'],**kwargs_ov):
 
     npix = 12*nside**2
     lmax = np.size(ckk) - 1
@@ -73,8 +110,7 @@ def compute_kcninv(qobjf,rlz,fltr,ckk,fpalm,nside=2048,Snmin=1,Snmax=100,klmin=1
     bl = np.ones((1,lmax+1))
     cl = np.reshape(ckk,(1,lmax+1))
 
-    #for q in tqdm.tqdm(qlist,ncols=100,desc='kcinv'):
-    for q in tqdm.tqdm(['TT'],ncols=100,desc='kcinv'):
+    for q in tqdm.tqdm(qlist,ncols=100,desc='kcinv'):
 
         if fltr=='cinv' and q!='TT':
             W = M
@@ -83,28 +119,19 @@ def compute_kcninv(qobjf,rlz,fltr,ckk,fpalm,nside=2048,Snmin=1,Snmax=100,klmin=1
             W, __ = prjlib.window('la',ascale=5.)
             iW2 = 1./(W**2+1e-60)
 
-        #if misctools.check_path(qobjf[q].nkmap,**kwargs_ov):
-        #    inkk = pickle.load(open(qobjf[q].nkmap,"rb"))
-        #else:
-        #Rlz = np.linspace(Snmin,Snmax,Snmax-Snmin+1,dtype=np.int)
-        #inkk = compute_knoise(Rlz,qobjf[q],W,M,iW2,fpalm,lmax,lmin=klmin)
+        iNkk = np.reshape( pickle.load(open(qobjf[q].nkmap,"rb")), (1,1,npix) )
         
-        inkk = pickle.load(open(qobjf[q].nkmap,"rb"))
-        
-        iNkk = np.reshape(inkk,(1,1,npix))
-        
-        Al = np.loadtxt(qobjf[q].al,unpack=True)[1]
+        Al = (np.loadtxt(qobjf[q].al)).T[1]
         iNkk = np.mean(1./Al[2:1000]) * iNkk/np.max(iNkk)
 
         for i in tqdm.tqdm(rlz,ncols=100,desc='each rlz ('+q+'):',leave=False):
 
-            klm = klm_debiased(qobjf[q],i,lmax)
+            klm = load_klms(qobjf[q].alm[i],lmax,fmlm=qobjf[q].mfb[i])
             klm[:klmin,:] = 0.
             kap = np.reshape( M*iW2 * curvedsky.utils.hp_alm2map(nside,lmax,lmax,klm) , (1,1,npix) )
 
             wklm = curvedsky.cninv.cnfilter_freq(1,1,nside,lmax,cl,bl,iNkk,kap,chn,lmaxs=lmaxs,nsides=nsides,itns=itns,eps=eps,filter='w',ro=1)
             pickle.dump((wklm),open(qobjf[q].walm[i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
-
 
 
 def aps(fltr,qobj,rlz,fpalm,wn,verbose=True):
@@ -213,8 +240,8 @@ def interface(run=[],kwargs_ov={},kwargs_cmb={},kwargs_qrec={},ep=1e-30):
         aps(p.fltr,qobj,p.rlz,p.fpalm,wn)
 
     # Cinv kappa
-    if 'kcinv' in run:
-        compute_kcninv(qobj.f,p.rlz,p.fltr,p.kk[:qobj.olmax+1],p.fpalm,Snmin=p.snmin,Snmax=p.snmax,qlist=qobj.qlist,**kwargs_ov)
+    #if 'kcinv' in run:
+    #    compute_kcninv(qobj.f,p.rlz,p.fltr,p.kk[:qobj.olmax+1],Snmin=p.snmin,Snmax=p.snmax,qlist=qobj.qlist,**kwargs_ov)
 
 
 

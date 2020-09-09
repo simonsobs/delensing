@@ -5,7 +5,7 @@ import pickle
 import tqdm
 
 # from cmblensplus/wrap
-import curvedsky
+import curvedsky as cs
 
 # from cmblensplus/utils
 import misctools
@@ -93,26 +93,25 @@ def load_input_kappa(rlz_index,glob,lmax,to_healpix=True):
     iplm = read_phi_alms( glob.fpalm[rlz_index], lmax )
     iklm = hp.almxfl( iplm, glob.kL[:lmax+1] )
     if to_healpix:
-        iklm = curvedsky.utils.lm_healpy2healpix( len(iklm), iklm, lmax )
+        iklm = cs.utils.lm_healpy2healpix( len(iklm), iklm, lmax )
     return iklm
 
-def load_mass_tracers(rlz_index,qobj,mobj,win=None):
+
+def load_mass_tracers( rlz_index, qobj, mobj, mmask=None, kmask=None ):
     
     alms = np.zeros( ( mobj.nkap, mobj.lmax+1, mobj.lmax+1 ), dtype=np.complex )
     
     # get tracers from CMB lensing
     for k, n in mobj.klist_cmb.items():
-        if win is None: # iso noise case ignore mean-field subtraction 
-            alms[n,:,:] = tools_lens.load_klms( qobj.f[k].alm[rlz_index], mobj.lmax )
-        else:
-            alms[n,:,:] = tools_lens.load_klms( qobj.f[k].alm[rlz_index], mobj.lmax, fmlm = qobj.f[k].mfb[rlz_index] )
+        alms[n,:,:] = tools_lens.load_klms( qobj.f[k].alm[rlz_index], mobj.lmax, fmlm = qobj.f[k].mfb[rlz_index] )
+        if kmask is not None: 
+            alms[n,:,:] = cs.utils.mulwin( alms[n,:,:], kmask )
 
     # get tracers from LSS
     for k, n in mobj.klist_ext.items():
         alms[n,:,:] = pickle.load( open(mobj.fklm[k][rlz_index],"rb") )
-        if win is not None:
-            nside = hp.pixelfunc.get_nside(win)
-            alms[n,:,:] = curvedsky.utils.mulwin( nside, mobj.lmax, mobj.lmax, alms[n,:,:], win )
+        if mmask is not None: 
+            alms[n,:,:] = cs.utils.mulwin( alms[n,:,:], mmask )
     
     return alms
     
@@ -137,8 +136,6 @@ def pad_cls(lmin,lmax,orig_cl):
 def corrcoeff(cross, auto1, auto2):
     
     return cross/np.sqrt(auto1*auto2)
-
-
 
 
 def get_spectra_matrix( mobj ):
@@ -340,7 +337,7 @@ def calculate_multitracer_weights(spectra_matrix, clkk, lmin):
     return c_array
 
 
-def calculate_multitracer_weights_sim(glob,qobj,mobj,win=None,**kwargs_ov):
+def calculate_multitracer_weights_sim(glob,qobj,mobj,mmask=None,kmask=None,**kwargs_ov):
     '''
     Get covariance and weights from simulated alms
     win : accounting for the window of CMB lensing map
@@ -362,19 +359,14 @@ def calculate_multitracer_weights_sim(glob,qobj,mobj,win=None,**kwargs_ov):
         for ii, i in enumerate(tqdm.tqdm(rlz,ncols=100,desc='compute coeff')):
 
             # load mass tracer alms
-            kalm = load_mass_tracers( i, qobj, mobj, win=win )
+            kalm = load_mass_tracers( i, qobj, mobj, mmask=mmask, kmask=kmask )
 
             # load input kappa and multiply lens window
             kilm = load_input_kappa( i, glob, lmax )
-            if win is not None:
-                nside = hp.pixelfunc.get_nside( win )
-                kilm = curvedsky.utils.mulwin( nside, lmax, lmax, kilm, win )
 
             # compute auto and cross
-            for ki in range(mobj.nkap):
-                vec[ii,ki,:] = curvedsky.utils.alm2cl(lmax,kalm[ki,:,:],kilm)
-                for kj in range(mobj.nkap):
-                    cov[ii,ki,kj,:] = curvedsky.utils.alm2cl(lmax,kalm[ki,:,:],kalm[kj,:,:])    
+            vec[ii,:,:] = np.array([ cs.utils.alm2cl(lmax,kalm[ki,:,:],kilm) for ki in range(mobj.nkap) ])            
+            cov[ii,:,:,:] = cs.utils.alm2cov(kalm)
 
         # compute weights as w = C^-1 V
         pickle.dump( (vec,cov), open(mobj.fcovs,"wb"), protocol=pickle.HIGHEST_PROTOCOL )
@@ -404,13 +396,13 @@ def interface( run=['gen_alm','comb'], kwargs_ov={}, kwargs_cmb={}, kwargs_qrec=
     mobj = mass_tracer( glob, qobj, **kwargs_mass )
 
     # setup window function
+    win, __ = prjlib.window('la',ascale=5.)
+    win = win**2 # account for quadratic fields of cmb lensing
+    M = win/(win+1e-60)
     if 'iso' in glob.ntype:
-        # no window function as fullsky
-        win = None
+        mmask, kmask = M, M
     else:
-        # load LAT window
-        win, __ = prjlib.window('la',ascale=5.)
-        win = win**2 # account for quadratic fields of cmb lensing
+        mmask, kmask = M, None
 
     # generate random gaussian alms of tracers
     if 'gen_alm' in run:
@@ -434,7 +426,7 @@ def interface( run=['gen_alm','comb'], kwargs_ov={}, kwargs_cmb={}, kwargs_qrec=
                 if misctools.check_path( mobj.fklm[k][i], **kwargs_ov ): continue
             
                 # re-ordering l,m to match healpix
-                alms = curvedsky.utils.lm_healpy2healpix( len(tracer_alms[n,:]), tracer_alms[n,:], mobj.lmax )
+                alms = cs.utils.lm_healpy2healpix( tracer_alms[n,:], mobj.lmax )
                 
                 # save
                 pickle.dump( (alms), open(mobj.fklm[k][i],"wb"), protocol=pickle.HIGHEST_PROTOCOL )
@@ -444,8 +436,9 @@ def interface( run=['gen_alm','comb'], kwargs_ov={}, kwargs_cmb={}, kwargs_qrec=
     if 'comb' in run:
         
         # Calculate the optimal weights to form a multitracer map for delensing
-        #_array = calculate_multitracer_weights( clnl_matrix, cl_matrix[0,0,:], mobj.lmin )
-        c_array = calculate_multitracer_weights_sim( glob, qobj, mobj, win=win )
+        #signal_covariance, clnl_matrix = get_spectra_matrix( mobj ) # for analytic filter
+        #weight = calculate_multitracer_weights( clnl_matrix, signal_covariance[0,0,:], mobj.lmin ) # for analytic filter
+        weight = calculate_multitracer_weights_sim( glob, qobj, mobj, mmask=mmask, kmask=kmask, **kwargs_ov )
         
         # loop over realizations to combine mass tracers with the above weight
         for ii, i in enumerate(tqdm.tqdm(glob.rlz,ncols=100,desc='coadding multitracer')):
@@ -453,13 +446,13 @@ def interface( run=['gen_alm','comb'], kwargs_ov={}, kwargs_cmb={}, kwargs_qrec=
             if misctools.check_path(mobj.fcklm[i],**kwargs_ov): continue
                 
             # prepare alm array
-            alms = load_mass_tracers( i, qobj, mobj, win=win )
+            alms = load_mass_tracers( i, qobj, mobj, mmask=mmask, kmask=kmask )
             
             # coadd tracers
-            cklms = coadd_kappa_alms( alms, c_array[ii,:,:] )
+            #cklms = coadd_kappa_alms( alms, weight ) # for analytic filter
+            cklms = coadd_kappa_alms( alms, weight[ii,:,:] )
             
             # save
             pickle.dump( (cklms), open(mobj.fcklm[i],"wb"), protocol=pickle.HIGHEST_PROTOCOL )
 
     
-
