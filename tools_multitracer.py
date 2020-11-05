@@ -93,11 +93,7 @@ def load_input_kappa(rlz_index,glob,lmax,to_healpix=True):
     iplm = read_phi_alms( glob.fpalm[rlz_index], lmax )
     iklm = hp.almxfl( iplm, glob.kL[:lmax+1] )
     if to_healpix:
-<<<<<<< HEAD
         iklm = cs.utils.lm_healpy2healpix( iklm, lmax )
-=======
-        iklm = cs.utils.lm_healpy2healpix( len(iklm), iklm, lmax )
->>>>>>> d773ff2b6875ffffa9c5baa5cb536b1ec7bace18
     return iklm
 
 

@@ -40,10 +40,10 @@ kwargs_cmb  = {\
     'freq':'com', \
     # fixed for LT
     't':'la', \
-    #'ntype':'base_roll50', \
+    'ntype':'base_roll50', \
     #'ntype':'base_iso_roll50', \
     #'ntype':'goal_roll50', \
-    'ntype':'goal_iso_roll50', \
+    #'ntype':'goal_iso_roll50', \
     'lTmin':500, \
     'lTmax':3000, \
     'fltr':'none', \
