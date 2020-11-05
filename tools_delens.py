@@ -210,8 +210,13 @@ def compute_coeff(rlz,fdlm,fblm,frho,W,olmax=1024,klist=['TT','TE','EE','EB']):
     bb, mvec, mmat = np.mean(cbb,axis=0),  np.mean(vec,axis=0),  np.mean(mat,axis=0)
     print(np.shape(bb),np.shape(mvec),np.shape(mmat))
 
+<<<<<<< HEAD
     # compute correlation coefficients (need to remove ith realization)
     rho = np.array([ np.dot(mvec[:,l],np.dot(np.linalg.inv(mmat[:,:,l]),mvec[:,l])) for l in range(2,olmax+1)])
+=======
+    # compute correlation coefficients
+    rho = np.array([ np.dot(mvec[:,l],np.dot(np.linalg.inv(mmat[:,:,l]),mvec[:,l])) for l in range(2,olmax)])
+>>>>>>> d773ff2b6875ffffa9c5baa5cb536b1ec7bace18
 
     # save to file
     L = np.linspace(0,olmax,olmax+1)
@@ -263,7 +268,11 @@ def interface(run_del=[],kwargs_ov={},kwargs_cmb={},kwargs_qrec={},kwargs_mass={
         pid = prjlib.analysis_init(**kwargs_cmb)
         # use overlapped region
         Wsa = prjlib.window('sa')[0]
+<<<<<<< HEAD
         Wla = prjlib.window('la',ascale=5.)[0] # here, apodized mask is used otherwise the efficiency at edges gets worse
+=======
+        Wla = prjlib.window('la',ascale=0.)[0]
+>>>>>>> d773ff2b6875ffffa9c5baa5cb536b1ec7bace18
         Wsa *= hp.pixelfunc.ud_grade(Wla,512)
 
     if 'aps' in run_del:

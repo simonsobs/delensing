@@ -11,22 +11,19 @@ import tools_multitracer
 import tools_delens
 
 
-#run_cmb = ['simmap']
-#run_cmb = ['simmap','calcalm']
-#run_cmb = ['calcalm']
-run_cmb = []
-
 #run_qrec = ['norm','qrec','n0','mean','aps']
+#run_qrec = ['norm','qrec','mean']
 #run_qrec = ['n0','mean','aps']
 #run_qrec = ['norm','qrec','n0','rdn0','mean','aps','kcinv']
-#run_qrec = ['kcinv']
+#run_qrec = ['mean','aps']
 run_qrec = []
 
-run_mass = ['gen_alm','comb']
+#run_mass = ['gen_alm','comb']
+run_mass = ['comb']
 #run_mass = []
 
-run_del = ['alm','aps']
-#run_del = ['alm','aps','rho']
+#run_del = ['alm','aps']
+run_del = ['alm','aps','rho']
 #run_del = ['rho']
 #run_del = []
 
@@ -35,21 +32,25 @@ kwargs_ov   = {\
     'verbose':True \
 }
 
+
 kwargs_cmb  = {\
     'snmin':1, \
     'snmax':100, \
-    #freq: not use for simmap
+    # fixed for LT
     'freq':'com', \
-    #'t':'co', \
+    # fixed for LT
     't':'la', \
-    #'ntype':'base_roll50', \
-    'ntype':'base_iso_roll50', \
+    'ntype':'base_roll50', \
+    #'ntype':'base_iso_roll50', \
+    #'ntype':'goal_roll50', \
+    #'ntype':'goal_iso_roll50', \
     'lTmin':500, \
     'lTmax':3000, \
     'fltr':'none', \
     #'fltr':'cinv', \
     'ascale':5.0, \
 }
+
 
 kwargs_qrec = {\
     'qlist':['TT','TE','EE','EB'], \
@@ -76,6 +77,7 @@ kwargs_del = {\
     'etype':'co',\
     #'klist':['TT','TE','EE','EB'],\
     'klist':['comb'],\
+    #'klist':['ALLid'],\
     #'kfltr':'cinv',\
     'kfltr':'none',\
     'olmax':2048,\
@@ -83,14 +85,7 @@ kwargs_del = {\
 }
 
 
-freqs = ['93','145','225']
-#freqs = ['145','225']
-
-
 # //// Main calculation ////#
-if run_cmb:
-    tools_cmb.interface( freqs, kwargs_ov=kwargs_ov, kwargs_cmb=kwargs_cmb, run=run_cmb )
-
 if run_qrec:
     tools_lens.interface( run=run_qrec, kwargs_ov=kwargs_ov, kwargs_cmb=kwargs_cmb, kwargs_qrec=kwargs_qrec )
 
