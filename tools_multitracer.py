@@ -5,7 +5,7 @@ import pickle
 import tqdm
 
 # from cmblensplus/wrap
-import curvedsky
+import curvedsky as cs
 
 # from cmblensplus/utils
 import misctools
@@ -28,27 +28,35 @@ class mass_tracer():
         self.klist_gal = {}
         self.klist_cib = {}
 
+        # store id for cmb lensing maps
         kid = 0
         for k in add_cmb:
             self.klist_cmb[k] = kid
             kid += 1
-        
+
+        # store id for galaxy maps
         for z in add_gal:
             self.klist_gal['g'+str(z)] = kid 
             kid += 1
-        
+
+        # store id for cib maps
         if add_cib: 
             self.klist_cib['cib'] = kid
         
+        # define list of all mass tracers
         self.klist = { **self.klist_cmb, **self.klist_gal, **self.klist_cib }
+
+        # define list of non-CMB mass tracers
         self.klist_ext = { **self.klist_gal, **self.klist_cib }
-        print(self.klist)
+
+        # total number of mass tracer maps
+        self.nkap = len(self.klist)
         
+        # multipole range of the mass tracer
         self.lmin = lmin
         self.lmax = lmax
 
-        self.nkap = len(self.klist)
-        
+        # noise curve for cmb lensing map
         self.nlkk = {}
         for k, n in self.klist_cmb.items():
             self.nlkk[n] = np.loadtxt( qobj.f[k].al, unpack=True )[1][:lmax+1]
@@ -66,8 +74,9 @@ class mass_tracer():
             self.fklm[k] = [ d['del'] + 'mass/' + k + '_' + str(i) + '.pkl' for i in ids ]
         
         # kappa alm of combined mass tracer
-        qtag = glob.stag + qobj.ltag
-        self.fcklm = [ d['del'] + 'mass/comb_' + qtag + '_' + '-'.join(self.klist.keys()) + '_' + str(i) + '.pkl' for i in ids ]
+        mtag = glob.stag + qobj.ltag + '_' + '-'.join(self.klist.keys())
+        self.fcklm = [ d['del'] + 'mass/comb_' + mtag + '_' + str(i) + '.pkl' for i in ids ]
+        self.fcovs = d['del'] + 'mass/cov_' + mtag + '.pkl'
 
         # gaussian mass tracer
         #self.fgalm = [ d['root'] + 'multitracer_forBBgroup/combined_phi_alms_noiselessE_mvkappa_simid_'+str(i)+'.npy' for i in range(200)]
@@ -78,6 +87,34 @@ def read_phi_alms(phi_alm_file, lmax):
     phi_alm = hp.read_alm(phi_alm_file)
     return shorten_alm(phi_alm, lmax)
 
+
+def load_input_kappa(rlz_index,glob,lmax,to_healpix=True):
+    # load input phi alm and then convert it to kappa alm
+    iplm = read_phi_alms( glob.fpalm[rlz_index], lmax )
+    iklm = hp.almxfl( iplm, glob.kL[:lmax+1] )
+    if to_healpix:
+        iklm = cs.utils.lm_healpy2healpix( iklm, lmax )
+    return iklm
+
+
+def load_mass_tracers( rlz_index, qobj, mobj, mmask=None, kmask=None ):
+    
+    alms = np.zeros( ( mobj.nkap, mobj.lmax+1, mobj.lmax+1 ), dtype=np.complex )
+    
+    # get tracers from CMB lensing
+    for k, n in mobj.klist_cmb.items():
+        alms[n,:,:] = tools_lens.load_klms( qobj.f[k].alm[rlz_index], mobj.lmax, fmlm = qobj.f[k].mfb[rlz_index] )
+        if kmask is not None: 
+            alms[n,:,:] = cs.utils.mulwin( alms[n,:,:], kmask )
+
+    # get tracers from LSS
+    for k, n in mobj.klist_ext.items():
+        alms[n,:,:] = pickle.load( open(mobj.fklm[k][rlz_index],"rb") )
+        if mmask is not None: 
+            alms[n,:,:] = cs.utils.mulwin( alms[n,:,:], mmask )
+    
+    return alms
+    
 
 def shorten_alm(input_alm, lmax_new):
     lmax_old = hp.Alm.getlmax(len(input_alm))
@@ -99,126 +136,6 @@ def pad_cls(lmin,lmax,orig_cl):
 def corrcoeff(cross, auto1, auto2):
     
     return cross/np.sqrt(auto1*auto2)
-
-
-def calculate_sim_weights( cl, lmin, num_of_kcmb ):
-    '''
-    Calculate the weights A_l^{ij} and the auxiliary spectra C_l^{ij}={C_l^{uu},C_l^{ee},...} from which the to draw the alm coefficients a_p={u_{lm},e_{lm},...}
-    The simulated alm has the form, alm = sum_{p=0}^i A^{ip} a^p, where a^p is the auxiliary alm. To abvoid completely degenerate case for CMB estimators,
-    we set A^{ip} = 0 for p within p > 0 and p < num of kcmb.
-    '''
-    num_of_tracers = len(cl[:,0,0]) 
-    num_of_multipoles = len(cl[0,0,:])
-    aux_cl = np.zeros( (num_of_tracers, num_of_multipoles) ) #Auxiliary spectra
-    A = np.zeros( (num_of_tracers,num_of_tracers,num_of_multipoles) ) #Weights for the alms
-    #aux_cl = np.zeros((num_of_tracers, num_of_multipoles), dtype='complex128') #Auxiliary spectra
-    #A = np.zeros((num_of_tracers,num_of_tracers,num_of_multipoles), dtype='complex128') #Weights for the alms
-
-    for j in range(num_of_tracers):
-
-        for i in range(num_of_tracers):
-        
-            if j>i:
-            
-                pass
-            
-            else:
-
-                aux_cl[j,:] = np.nan_to_num(cl[j,j,:])
-
-                if (i > 0 and i < num_of_kcmb) or (j > 0 and j < num_of_kcmb) : continue
-
-                for p in range(j):
-                    aux_cl[j] -= np.nan_to_num(A[j,p,:]**2 * aux_cl[p,:])
-
-                A[i,j,lmin:] = np.nan_to_num((1./aux_cl[j,lmin:])*cl[i,j,lmin:])
-
-                for p in range(j):
-                    A[i,j,lmin:] -= np.nan_to_num((1./aux_cl[j,lmin:])*A[j,p,lmin:]*A[i,p,lmin:]*aux_cl[p,lmin:])
-    
-    return aux_cl, A
-
-
-def draw_gaussian_a_p(input_kappa_alm, aux_cl, num_of_kcmb):
-    '''
-    Draw a_p alms from distributions with the right auxiliary spectra.
-    '''
-    num_of_tracers = len(aux_cl[:,0])
-    a_alms = np.zeros((num_of_tracers, len(input_kappa_alm)), dtype='complex128') #Unweighted alm components
-
-    a_alms[0:num_of_kcmb,:] = input_kappa_alm
-    for j in range(num_of_kcmb, num_of_tracers):
-        a_alms[j,:] = hp.synalm(aux_cl[j,:], lmax=len(aux_cl[0,:])-1)
-
-    return a_alms
-
-
-def generate_individual_gaussian_tracers(a_alms, A, nlkk, num_of_kcmb):
-    '''
-    Put all the weights and alm components together to give appropriately correlated tracers
-    '''
-    num_of_tracers = len(a_alms[:,0])
-    tracer_alms = np.zeros((num_of_tracers, len(a_alms[0,:])), dtype='complex128') #Appropriately correlated final tracers
-
-    for i in range(num_of_kcmb):
-        tracer_alms[i,:] = a_alms[i,:] + hp.synalm(nlkk[i], lmax=len(A[i,i,:])-1)
-    
-    for i in range(num_of_kcmb,num_of_tracers):
-        for j in range(i+1):
-            tracer_alms[i,:] += hp.almxfl(a_alms[j,:], A[i,j,:])
-
-    return tracer_alms
-
-
-
-def calculate_multitracer_weights(spectra_matrix, clkk, lmin):
-    '''
-    Calculate the weights in the way described in Blake and Marcel's paper
-    '''
-    num_of_tracers = len(spectra_matrix[:,0,0])
-    num_of_multipoles = len(spectra_matrix[0,0,:])
-    tracer_corr_matrix = np.ones((num_of_tracers, num_of_tracers, num_of_multipoles))
-    inv_tracer_corr_matrix = np.zeros(tracer_corr_matrix.shape)
-    tracer_corr_w_phi = np.zeros((num_of_tracers,num_of_multipoles))
-    c_array = np.zeros((num_of_tracers, num_of_multipoles))
-
-    for i in range(num_of_tracers):
-        for j in range(num_of_tracers):
-            if j>i:
-                tracer_corr_matrix[i,j,:] = tracer_corr_matrix[j,i,:] = corrcoeff(spectra_matrix[i,j,:], spectra_matrix[i,i,:], spectra_matrix[j,j,:])
-            else:
-                pass
-
-    for k in range(num_of_multipoles):
-        try:
-            inv_tracer_corr_matrix[:,:,k] = np.linalg.inv(tracer_corr_matrix[:,:,k])
-        except:
-            pass
-
-    for t in range(num_of_tracers):
-        if t is 0:
-            # Should probably make this neater...
-            tracer_corr_w_phi[t,:] = corrcoeff(clkk, spectra_matrix[t,t,:], clkk)
-        else:
-            tracer_corr_w_phi[t,:] = corrcoeff(spectra_matrix[0,t,:], spectra_matrix[t,t,:], clkk)
-
-    for index in range(num_of_tracers):
-        for l in range(lmin,num_of_multipoles):
-            c_array[index,l] = np.dot(tracer_corr_w_phi[:,l],inv_tracer_corr_matrix[index,:,l])*np.sqrt(clkk/spectra_matrix[index,index,:])[l]
-
-    return c_array
-
-
-
-def coadd_kappa_alms(tracer_alms, weights):
-    
-    combined_kappa_alms = 0.*tracer_alms[0,:,:]
-    
-    for index, individual_alms in enumerate(tracer_alms):
-        combined_kappa_alms +=  weights[index,:,None] * individual_alms
-    
-    return combined_kappa_alms
-        
 
 
 def get_spectra_matrix( mobj ):
@@ -286,60 +203,232 @@ def get_spectra_matrix( mobj ):
     return cl_matrix, clnl_matrix
 
 
-def generate_tracer_alms(simid, cl_matrix, iklm, num_of_kcmb, nlkk = 0., lmin=8, lmax=2007):
+
+def generate_tracer_alms( simid, signal_covariance, iklm, num_of_kcmb, lmin, lmax ):
 
     # Calculate the weights and auxiliary spectra needed to generate Gaussian sims of individual tracers
-    aux_cl, A = calculate_sim_weights( cl_matrix, lmin, num_of_kcmb )
+    aux_cl, A = calculate_sim_weights( signal_covariance, lmin, num_of_kcmb )
 
     # Draw harmonic coefficients from Gaussian distributions with the calculated auxiliary spectra
     a_alms = draw_gaussian_a_p( iklm, aux_cl, num_of_kcmb )
 
     # Combine weights and coefficients to generate sims of individual tracers
-    tracer_alms = generate_individual_gaussian_tracers( a_alms, A, nlkk, num_of_kcmb )
+    tracer_alms = generate_individual_gaussian_tracers( a_alms, A, num_of_kcmb )
 
     return tracer_alms
 
 
+def calculate_sim_weights( cl, lmin, num_of_kcmb ):
+    '''
+    Calculate the weights A_l^{ij} and the auxiliary spectra C_l^{ij}={C_l^{uu},C_l^{ee},...} from which the to draw the alm coefficients a_p={u_{lm},e_{lm},...}
+    The simulated alm has the form, alm = sum_{p=0}^i A^{ip} a^p, where a^p is the auxiliary alm. To abvoid completely degenerate case for CMB estimators,
+    we set A^{ip} = 0 for p within p > 0 and p < num of kcmb.
+    '''
+    num_of_tracers = len(cl[:,0,0]) 
+    num_of_multipoles = len(cl[0,0,:])
+    aux_cl = np.zeros( (num_of_tracers, num_of_multipoles) ) #Auxiliary spectra
+    A = np.zeros( (num_of_tracers,num_of_tracers,num_of_multipoles) ) #Weights for the alms
+    #aux_cl = np.zeros((num_of_tracers, num_of_multipoles), dtype='complex128') #Auxiliary spectra
+    #A = np.zeros((num_of_tracers,num_of_tracers,num_of_multipoles), dtype='complex128') #Weights for the alms
+
+    for j in range(num_of_tracers):
+
+        for i in range(num_of_tracers):
+        
+            if j>i:
+            
+                pass
+            
+            else:
+
+                aux_cl[j,:] = np.nan_to_num(cl[j,j,:])
+
+                if (i > 0 and i < num_of_kcmb) or (j > 0 and j < num_of_kcmb) : continue
+
+                for p in range(j):
+                    aux_cl[j] -= np.nan_to_num(A[j,p,:]**2 * aux_cl[p,:])
+
+                A[i,j,lmin:] = np.nan_to_num((1./aux_cl[j,lmin:])*cl[i,j,lmin:])
+
+                for p in range(j):
+                    A[i,j,lmin:] -= np.nan_to_num((1./aux_cl[j,lmin:])*A[j,p,lmin:]*A[i,p,lmin:]*aux_cl[p,lmin:])
+    
+    return aux_cl, A
+
+
+def draw_gaussian_a_p(input_kappa_alm, aux_cl, num_of_kcmb):
+    '''
+    Draw a_p alms from distributions with the right auxiliary spectra.
+    '''
+    num_of_tracers = len(aux_cl[:,0])
+    a_alms = np.zeros((num_of_tracers, len(input_kappa_alm)), dtype='complex128') #Unweighted alm components
+
+    a_alms[0:num_of_kcmb,:] = input_kappa_alm
+    for j in range(num_of_kcmb, num_of_tracers):
+        a_alms[j,:] = hp.synalm(aux_cl[j,:], lmax=len(aux_cl[0,:])-1)
+
+    return a_alms
+
+
+#def generate_individual_gaussian_tracers(a_alms, A, nlkk, num_of_kcmb):
+def generate_individual_gaussian_tracers(a_alms, A, num_of_kcmb):
+    '''
+    Put all the weights and alm components together to give appropriately correlated tracers
+    '''
+    num_of_tracers = len(a_alms[:,0])
+    tracer_alms = np.zeros((num_of_tracers, len(a_alms[0,:])), dtype='complex128') #Appropriately correlated final tracers
+
+    #for i in range(num_of_kcmb):
+    #    tracer_alms[i,:] = a_alms[i,:] + hp.synalm(nlkk[i], lmax=len(A[i,i,:])-1)
+    
+    for i in range(num_of_kcmb,num_of_tracers):
+        for j in range(i+1):
+            tracer_alms[i,:] += hp.almxfl(a_alms[j,:], A[i,j,:])
+
+    return tracer_alms
+
+
+def coadd_kappa_alms(tracer_alms, weights):
+    # summing up mass tracer alms with appropriate weights
+    
+    combined_kappa_alms = 0.*tracer_alms[0,:,:]
+    
+    for index, individual_alms in enumerate(tracer_alms):
+        combined_kappa_alms +=  weights[index,:,None] * individual_alms
+    
+    return combined_kappa_alms
+
+    
+def calculate_multitracer_weights(spectra_matrix, clkk, lmin):
+    '''
+    Calculate the weights in the way described in Blake and Marcel's paper
+    '''
+    num_of_tracers = len(spectra_matrix[:,0,0])
+    num_of_multipoles = len(spectra_matrix[0,0,:])
+    tracer_corr_matrix = np.ones((num_of_tracers, num_of_tracers, num_of_multipoles))
+    inv_tracer_corr_matrix = np.zeros(tracer_corr_matrix.shape)
+    tracer_corr_w_phi = np.zeros((num_of_tracers,num_of_multipoles))
+    c_array = np.zeros((num_of_tracers, num_of_multipoles))
+
+    for i in range(num_of_tracers):
+        for j in range(num_of_tracers):
+            if j>i:
+                tracer_corr_matrix[i,j,:] = tracer_corr_matrix[j,i,:] = corrcoeff(spectra_matrix[i,j,:], spectra_matrix[i,i,:], spectra_matrix[j,j,:])
+            else:
+                pass
+
+    for k in range(num_of_multipoles):
+        try:
+            inv_tracer_corr_matrix[:,:,k] = np.linalg.inv(tracer_corr_matrix[:,:,k])
+        except:
+            pass
+
+    for t in range(num_of_tracers):
+        if t is 0:
+            # Should probably make this neater...
+            tracer_corr_w_phi[t,:] = corrcoeff(clkk, spectra_matrix[t,t,:], clkk)
+        else:
+            tracer_corr_w_phi[t,:] = corrcoeff(spectra_matrix[0,t,:], spectra_matrix[t,t,:], clkk)
+
+    for index in range(num_of_tracers):
+        for l in range(lmin,num_of_multipoles):
+            c_array[index,l] = np.dot(tracer_corr_w_phi[:,l],inv_tracer_corr_matrix[index,:,l])*np.sqrt(clkk/spectra_matrix[index,index,:])[l]
+
+    return c_array
+
+
+def calculate_multitracer_weights_sim(glob,qobj,mobj,mmask=None,kmask=None,**kwargs_ov):
+    '''
+    Get covariance and weights from simulated alms
+    win : accounting for the window of CMB lensing map
+    '''
+
+    lmin = mobj.lmin
+    lmax = mobj.lmax
+    rlz  = glob.rlz
+
+    if misctools.check_path(mobj.fcovs,**kwargs_ov): 
+        
+        vec, cov = pickle.load(open(mobj.fcovs,"rb"))
+    
+    else:
+
+        vec = np.zeros( ( len(rlz), mobj.nkap, lmax+1 ) )
+        cov = np.zeros( ( len(rlz), mobj.nkap, mobj.nkap, lmax+1 ) )
+    
+        for ii, i in enumerate(tqdm.tqdm(rlz,ncols=100,desc='compute coeff')):
+
+            # load mass tracer alms
+            kalm = load_mass_tracers( i, qobj, mobj, mmask=mmask, kmask=kmask )
+
+            # load input kappa and multiply lens window
+            kilm = load_input_kappa( i, glob, lmax )
+
+            # compute auto and cross
+            vec[ii,:,:] = np.array([ cs.utils.alm2cl(lmax,kalm[ki,:,:],kilm) for ki in range(mobj.nkap) ])            
+            cov[ii,:,:,:] = cs.utils.alm2cov(kalm)
+
+        # compute weights as w = C^-1 V
+        pickle.dump( (vec,cov), open(mobj.fcovs,"wb"), protocol=pickle.HIGHEST_PROTOCOL )
+
+
+    weight = np.zeros( ( len(rlz), mobj.nkap, lmax+1 ) )
+    
+    for ii, i in enumerate(tqdm.tqdm(rlz,ncols=100,desc='compute weights')):
+    
+        mvec, mcov = np.mean(np.delete(vec,ii,0),axis=0),  np.mean(np.delete(cov,ii,0),axis=0)
+
+        for l in range(lmin,lmax+1):
+            weight[ii,:,l] = np.dot( np.linalg.inv(mcov[:,:,l]), mvec[:,l] )
+    
+    return weight
+
+    
+    
 def interface( run=['gen_alm','comb'], kwargs_ov={}, kwargs_cmb={}, kwargs_qrec={}, kwargs_mass={} ):
 
-    # load parameters and filenames
     kwargs_cmb['t']    = 'la'
     kwargs_cmb['freq'] = 'com'
+
+    # load parameters and filenames
     glob = prjlib.analysis_init( **kwargs_cmb )
     qobj = tools_lens.init_qobj( glob.stag, glob.doreal, **kwargs_qrec )
     mobj = mass_tracer( glob, qobj, **kwargs_mass )
-    
-    # load LAT window
-    if 'iso' in glob.ntype:
-        win = None
-    else:
-        win, __ = prjlib.window('la',ascale=5.)
-        nside = hp.pixelfunc.get_nside(win)
 
-    # load cl-matrix and covariance of alms
-    cl_matrix, clnl_matrix = get_spectra_matrix( mobj )
-    
-    # generate random gaussian alms
+    # setup window function
+    win, __ = prjlib.window('la',ascale=5.)
+    win = win**2 # account for quadratic fields of cmb lensing
+    M = win/(win+1e-60)
+    if 'iso' in glob.ntype:
+        mmask, kmask = M, M
+    else:
+        mmask, kmask = M, None
+
+    # generate random gaussian alms of tracers
     if 'gen_alm' in run:
-            
+        
+        # load cl-matrix and covariance of alms
+        signal_covariance, clnl_matrix = get_spectra_matrix( mobj )
+
         # loop over realizations
         for i in tqdm.tqdm(glob.rlz,ncols=100,desc='generating multitracer klms'):
         
             # load input phi alm and then convert it to kappa alm
-            iplm = read_phi_alms( glob.fpalm[i], mobj.lmax )
-            iklm = hp.almxfl( iplm, glob.kL[:mobj.lmax+1] )
+            iklm = load_input_kappa( i, glob, mobj.lmax, to_healpix=False )
 
             # generate tracer alms
-            tracer_alms = generate_tracer_alms( i, cl_matrix, iklm, len(mobj.klist_cmb), nlkk=mobj.nlkk )
+            tracer_alms = generate_tracer_alms( i, signal_covariance, iklm, len(mobj.klist_cmb), mobj.lmin, mobj.lmax )
 
-            # save to files
+            # save to files for external mass tracers
             for k, n in mobj.klist_ext.items():
                 
-                if misctools.check_path(mobj.fklm[k][i],**kwargs_ov): continue
+                # check if file exist
+                if misctools.check_path( mobj.fklm[k][i], **kwargs_ov ): continue
             
                 # re-ordering l,m to match healpix
-                alms = curvedsky.utils.lm_healpy2healpix( len(tracer_alms[n,:]), tracer_alms[n,:], mobj.lmax )
+                alms = cs.utils.lm_healpy2healpix( tracer_alms[n,:], mobj.lmax )
                 
+                # save
                 pickle.dump( (alms), open(mobj.fklm[k][i],"wb"), protocol=pickle.HIGHEST_PROTOCOL )
             
             
@@ -347,28 +436,23 @@ def interface( run=['gen_alm','comb'], kwargs_ov={}, kwargs_cmb={}, kwargs_qrec=
     if 'comb' in run:
         
         # Calculate the optimal weights to form a multitracer map for delensing
-        c_array = calculate_multitracer_weights( clnl_matrix, cl_matrix[0,0,:], mobj.lmin )
+        #signal_covariance, clnl_matrix = get_spectra_matrix( mobj ) # for analytic filter
+        #weight = calculate_multitracer_weights( clnl_matrix, signal_covariance[0,0,:], mobj.lmin ) # for analytic filter
+        weight = calculate_multitracer_weights_sim( glob, qobj, mobj, mmask=mmask, kmask=kmask, **kwargs_ov )
         
-        # loop over realizations
-        for i in tqdm.tqdm(glob.rlz,ncols=100,desc='coadding multitracer'):
+        # loop over realizations to combine mass tracers with the above weight
+        for ii, i in enumerate(tqdm.tqdm(glob.rlz,ncols=100,desc='coadding multitracer')):
             
             if misctools.check_path(mobj.fcklm[i],**kwargs_ov): continue
                 
-            alms = np.zeros( ( mobj.nkap, mobj.lmax+1, mobj.lmax+1 ), dtype=np.complex )
+            # prepare alm array
+            alms = load_mass_tracers( i, qobj, mobj, mmask=mmask, kmask=kmask )
             
-            for k, n in mobj.klist_cmb.items():
-                alms[n,:,:] = tools_lens.load_klms( qobj.f[k].alm[i], mobj.lmax, fmlm = qobj.f[k].mfb[i] )
-
-            for k, n in mobj.klist_ext.items():
-                alms[n,:,:] = pickle.load( open(mobj.fklm[k][i],"rb") )
-                if win is not None:
-                    alms[n,:,:] = curvedsky.utils.mulwin( nside, mobj.lmax, mobj.lmax, alms[n,:,:], win**2 )
-                
-            # coadd
-            cklms = coadd_kappa_alms( alms, c_array )
+            # coadd tracers
+            #cklms = coadd_kappa_alms( alms, weight ) # for analytic filter
+            cklms = coadd_kappa_alms( alms, weight[ii,:,:] )
             
-            # save to a file
+            # save
             pickle.dump( (cklms), open(mobj.fcklm[i],"wb"), protocol=pickle.HIGHEST_PROTOCOL )
 
     
-

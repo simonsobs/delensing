@@ -19,6 +19,7 @@ import misctools
 
 
 #////////// Define Fixed Values //////////#
+Tcmb = constants.Tcmb
 
 def data_directory():
     
@@ -26,7 +27,7 @@ def data_directory():
 
     root = '/project/projectdirs/sobs/delensing/'
     direct['root'] = root
-    direct['cls']  = root + 'official/planck_cls/'
+    direct['cls']  = root + 'official/sim_cls/'
     direct['win']  = root + 'mask/'
     direct['hit']  = root + 'hitmap/'
     direct['cmb']  = root + 'cmbsims/'
@@ -111,14 +112,6 @@ class analysis:
 
     def __init__(self,t='la',freq='',ntype='base_roll50',fltr='none',lmin=2,snmin=1,snmax=10,lTmin=500,lTmax=3000,ascale=5.):
 
-        #//// load config file ////#
-        #config = configparser.ConfigParser()
-        #if np.size(sys.argv) > 1 and '.ini' in sys.argv[1]:
-        #    print('reading '+sys.argv[1])
-        #    config.read(sys.argv[1])
-        #else:
-        #    config.add_section('DEFAULT')
-
         #//// get parameters ////#
         conf = misctools.load_config('CMB')
 
@@ -195,9 +188,6 @@ class analysis:
         else:
             wftag = '_mv3' + '_a'+str(self.ascale)+'deg_' + self.fltr
         
-        #ftag = ''
-        #if self.fltr != '': ftag = '_'+self.fltr
-        
         # specify CMB map
         self.stag = self.telescope + self.freq + '_' + self.ntype + wftag
         #self.stag = self.telescope + self.freq + ftag + '_' + self.ntype + wtag 
@@ -207,8 +197,8 @@ class analysis:
 
         #//// CAMB cls ////#
         # aps of best fit cosmology (currently PLANCK FFP10)
-        self.fucl = d['cls']+'ffp10_scalCls.dat'
-        self.flcl = d['cls']+'ffp10_lensedCls.dat'
+        self.fucl = d['cls']+'cosmo2017_10K_acc3_scalCls.dat'
+        self.flcl = d['cls']+'cosmo2017_10K_acc3_lensedCls.dat'
 
         #//// Filenames ////#
         # input phi
@@ -230,21 +220,21 @@ class analysis:
         self.kL = self.l*(self.l+1)*.5
 
         #loading theoretical cl
-        self.ucl = basic.aps.read_cambcls(self.fucl,self.lmin,self.lmax,5)/constants.Tcmb**2
-        self.lcl = basic.aps.read_cambcls(self.flcl,self.lmin,self.lmax,4,bb=True)/constants.Tcmb**2
+        self.ucl = CMB.read_camb_cls(self.fucl,output='array')[:,:self.lmax+1]
+        self.lcl = CMB.read_camb_cls(self.flcl,ftype='lens',output='array')[:,:self.lmax+1]
 
         #rename cls
-        self.uTT = self.ucl[0,:]
-        self.uEE = self.ucl[1,:]
-        self.uTE = self.ucl[2,:]
-        self.lTT = self.lcl[0,:]
-        self.lEE = self.lcl[1,:]
-        self.lBB = self.lcl[2,:]
-        self.lTE = self.lcl[3,:]
+        self.uTT = self.ucl[0]
+        self.uEE = self.ucl[1]
+        self.uTE = self.ucl[2]
+        self.lTT = self.lcl[0]
+        self.lEE = self.lcl[1]
+        self.lBB = self.lcl[2]
+        self.lTE = self.lcl[3]
 
         #kappa cl
-        self.pp = self.ucl[3,:]
-        self.kk = self.ucl[3,:]*self.kL**2
+        self.pp = self.ucl[3]
+        self.kk = self.ucl[3]*self.kL**2
 
 
 #//////////////////////////////////////////////////
@@ -277,45 +267,62 @@ def filename_freqs(freqs,**kwargs):
 # SO beam, noise, window
 #-------------------------
 
-def get_beam(t,freq,lmax): # Return Gaussian beam function
 
+def get_fwhm(t,freq): # Return Gaussian beam FWHM (from the SO forecast paper)
+
+    theta_la = { '93': 2.2, '145': 1.4, '225': 1., '280': .9 }
+    theta_sa = { '93': 30., '145': 17., '225': 11., '280': 9. }
+    
     if t == 'sa': #SAT beam FWHM in arcmin
-        if freq == '93':   theta = 30.
-        if freq == '145':  theta = 17.
-        if freq == '225':  theta = 11.
-        if freq == '280':  theta = 9.0
+        theta = theta_sa[freq]
 
     if t == 'la': #LAT beam FWHM in arcmin
-        if freq == '93':   theta = 2.2
-        if freq == '145':  theta = 1.4
-        if freq == '225':  theta = 1.0
-        if freq == '280':  theta = 0.9
+        theta = theta_la[freq]
 
     if t == 'id': #use LAT signal sims at 145GHz
         theta = 1.4
 
+    return theta
+
+
+def get_beam(t,freq,lmax): # Return Gaussian beam function
+
+    # get fwhm
+    theta = get_fwhm(t,freq)
+    
     # compute 1D Gaussian beam function from cmblensplus/utils/cmb.py
     return 1./CMB.beam(theta,lmax)
 
 
-def get_polnoise_params(t,freq): # Return parameters for SO polarization noise
+def get_noise_params(t,freq,tp='P'): # Return parameters for SO polarization noise
 
-    # sigma = \sigma_P in muK-arcmin
+    # sigma = \sigma_T in muK-arcmin
     # lknee = knee multipole of 1/f noise
     # alpha = power of 1/f noise
+
+    sigmas_la = { '93': 8.,  '145': 10., '225': 22., '280': 54. }
+    sigmas_sa = { '93': 2.6, '145': 3.3, '225': 6.3, '280': 16. }
+    lknees_sa = { '93': 50., '145': 50., '225': 70., '280': 100. }
+    alphas_sa = { '93': -2.5, '145': -3., '225': -3., '280': -3. }
     
-    if t == 'sa':
-        if freq == '93':   sigma, lknee, alpha = 2.6, 50., -2.5
-        if freq == '145':  sigma, lknee, alpha = 3.3, 50., -3.
-        if freq == '225':  sigma, lknee, alpha = 6.3, 70., -3.
-        if freq == '280':  sigma, lknee, alpha = 16.,100., -3.
+    if tp == 'P':
+        
+        if t == 'sa':
+            sigma = sigmas_sa[freq]
+            lknee = lknees_sa[freq]
+            alpha = alphas_sa[freq]
     
-    if t == 'la':
-        lknee, alpha = 700., -1.4
-        if freq == '93':   sigma = 8.
-        if freq == '145':  sigma = 10.
-        if freq == '225':  sigma = 22.
-        if freq == '280':  sigma = 54.
+        if t == 'la':
+            lknee, alpha = 700., -1.4
+            sigma = sigmas_la[freq] 
+            sigma *= np.sqrt(2.)
+    
+    if tp == 'T':
+        if t == 'la':
+            lknee, alpha = 1000., -3.5
+            sigma = sigmas_la[freq]
+        if t == 'sa':
+            sys.exit('SAT temperature is not available')
 
     return sigma, lknee, alpha
 
@@ -331,7 +338,7 @@ def nlspec(t='la',freq='145',lmax=4096,ep=1e-30):
     bl = get_beam(t,freq,lmax)
 
     # noise parameters
-    sigma, lknee, alpha = get_polnoise_params(t,freq)
+    sigma, lknee, alpha = get_noise_params(t,freq)
 
     # multipole and noise spectrum
     return l, (sigma*np.pi/10800.)**2 * ((l/lknee)**alpha+1.)/(bl+ep)**2
@@ -342,19 +349,35 @@ def nlspecs(t='la',freqs=['93','145','225','280'],ep=1e-30):
 
     # initialize
     Nl = {}
-    Nl['mv'] = 0.
+    Nl['all'] = 0.
 
     # noise spectrum for each frequency
     for freq in freqs:
         l, Nl[freq] = nlspec(t,freq)
-        Nl['mv'] += 1./(Nl[freq]+ep)
+        Nl['all'] += 1./(Nl[freq]+ep)
     
     # a simple combined noise spectrum
-    Nl['mv'] = 1./(Nl['mv']+ep)
+    Nl['all'] = 1./(Nl['all']+ep)
     
     return l, Nl
 
 
+def inv_nltt(freqs,lmax,roll=50,year=3.*3.2e7): # for cinv
+    
+    Nred = {'93':230.,'145':1500.,'225':17000.,'280':31000.}
+    
+    inl = np.zeros((1,len(freqs),lmax+1))
+    l = np.linspace(0,lmax,lmax+1)
+    l[:50] = 1e-1
+    
+    for i, freq in enumerate(freqs):
+        bl = get_beam('la',freq,lmax)
+        sigma, lknee, alpha = get_noise_params('la',freq,tp='T')
+        Nwhite = (sigma*np.pi/10800./Tcmb)**2 / (bl+1e-30)**2
+        inl[0,i,:] = Nred[freq]*(lknee/l)**3.5/Tcmb**2/year * 4.*np.pi + Nwhite
+
+    return 1./inl
+    
 def nlofficial(ntype='baseline',deproj=0,cols=(1,2,3,4,5,6),dimless=False,lmax=None,lTmin=None,lTmax=None):
     # Load official SO noise spectrum
 
@@ -377,9 +400,9 @@ def nlofficial(ntype='baseline',deproj=0,cols=(1,2,3,4,5,6),dimless=False,lmax=N
         NB = np.loadtxt(rootdir+'SO_LAT_Nell_P_'+ntype+'_fsky0p4_ILC_CMB_B.txt',unpack=True)[deproj+1]
 
     if dimless: # remove uK^2
-        NT /= constants.Tcmb**2
-        NE /= constants.Tcmb**2
-        NB /= constants.Tcmb**2
+        NT /= Tcmb**2
+        NE /= Tcmb**2
+        NB /= Tcmb**2
 
     if lmax is not None: # restrict output lmax
         NT = NT[:lmax+1]
@@ -425,6 +448,11 @@ def window(t,nside=None,ascale=0.,ep=1e-30):
         fmask = window_name(t,ascale)
         w = hp.fitsfunc.read_map(fmask,verbose=False)
 
+        if t=='sa':
+            print('SAT mask is further multiplied by hit-count binary')
+            hit = hitmap(t,512) 
+            w[hit==0] = 0
+            
         if nside is not None:  
             w = hp.pixelfunc.ud_grade(w,nside)
     
@@ -501,7 +529,7 @@ def load_input_plm(fpalm,lmax,verbose=False,ktype=''):
     # load input phi alms
     alm = np.complex128(hp.fitsfunc.read_alm(fpalm))
     # convert order of (l,m) to healpix format
-    alm = curvedsky.utils.lm_healpy2healpix(len(alm),alm,5100)[:lmax+1,:lmax+1]
+    alm = curvedsky.utils.lm_healpy2healpix(alm,5100)[:lmax+1,:lmax+1]
     # convert to kappa alm if required
     if ktype == 'k':
         L  = np.linspace(0,lmax,lmax+1)
@@ -515,8 +543,38 @@ def load_input_plm(fpalm,lmax,verbose=False,ktype=''):
 # Plot map
 #---------------------
 
-def view_map_from_alm(alm,nside,lmax,min=-.1,max=.1):
+def view_map_from_alm(alm,nside,lmax,min=-.1,max=.1,W=1.,title=''):
     Map = curvedsky.utils.hp_alm2map(nside,lmax,lmax,alm[:lmax+1,:lmax+1])
-    hp.mollview(Map,min=min,max=max)
+    hp.mollview(Map*W,min=min,max=max,title=title)
+
+
+def view_maps(klms,nside=128,lmax=256,min=-0.1,max=0.1,M=1.,title=''):
+
+    import ipywidgets as widgets # widget packages
+    import matplotlib.pyplot as plt
+    
+    klist = list(klms.keys())
+    print(klist)
+    
+    N = len(klist)
+    out = []
+    for n in range(N):
+        out.append(widgets.Output())
+
+    tab = widgets.Tab(children = out)
+    for n in range(N):
+        tab.set_title(n,klist[n])
+
+    display(tab)
+
+    fig, ax = {}, {}
+    for qi, q in enumerate(klist):
+        kap = M * curvedsky.utils.hp_alm2map(nside,lmax,lmax,klms[q][:lmax+1,:lmax+1])
+
+        with out[qi]:
+            fig[q], ax[q] = plt.subplots(figsize=[10,7])
+            plt.sca(ax[q])
+            hp.mollview(kap,min=min,max=max,hold=True,title=title)
+            plt.show(fig[q])
 
 

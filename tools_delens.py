@@ -124,7 +124,6 @@ def template_alm(rlz,klist,qf,elmin,elmax,klmin,klmax,fElm,fdlm,wlk,fgalm='',olm
             
             # load E mode
             wElm = pickle.load(open(fElm[i],"rb"))[:elmax+1,:elmax+1]
-            #wElm = pickle.load(open(fElm[i].replace('base_maskv3_a5.0deg','base'),"rb"))[:elmax+1,:elmax+1]
             wElm[:elmin,:] = 0.
 
             # load kappa
@@ -135,9 +134,10 @@ def template_alm(rlz,klist,qf,elmin,elmax,klmin,klmax,fElm,fdlm,wlk,fgalm='',olm
                     wplm = wlk[k][:klmax+1,None] * tools_lens.load_klms( qf[k].alm[i], klmax )
             
             elif k == 'ALLid':
-                Glm = np.load( fgalm[i] )
+                D = prjlib.data_directory()['root']
+                Glm = np.load( D+'multitracer_forBBgroup/coadded_tracers/combined_phi_alms_noiselessE_mvkappa_simid_'+str(i)+'.npy' )
                 glm = 0.*wElm
-                glm[20:glmax+1,:glmax+1] = curvedsky.utils.lm_healpy2healpix( len(Glm), Glm, glmax )[20:,:]
+                glm[20:glmax+1,:glmax+1] = curvedsky.utils.lm_healpy2healpix( Glm, glmax )[20:,:]
                 wplm = glm * wlk[k][:klmax+1,None] #* kL[:dlmax+1,None]
                 wplm[:klmin,:] = 0.
                 
@@ -167,10 +167,10 @@ def template_aps(rlz,fdlm,fBlm,fcl,W,olmax=2048,klist=['TT','TE','EE','EB'],**kw
             if misctools.check_path(fcl[k][i],**kwargs_ov): continue
             
             dalm = pickle.load(open(fdlm[k][i],"rb"))[0:olmax+1,0:olmax+1]
-            wdlm = curvedsky.utils.mulwin_spin(nside,olmax,olmax,2,0*dalm,dalm,W)[1]
+            wdlm = curvedsky.utils.mulwin_spin(0*dalm,dalm,W)[1]
             
             Balm = pickle.load(open(fBlm[i],"rb"))[:olmax+1,:olmax+1]
-            wBlm = curvedsky.utils.mulwin_spin(nside,olmax,olmax,2,0*Balm,Balm,W)[1]
+            wBlm = curvedsky.utils.mulwin_spin(0*Balm,Balm,W)[1]
             
             clbb = curvedsky.utils.alm2cl(olmax,wBlm)
             cldd = curvedsky.utils.alm2cl(olmax,wdlm)
@@ -178,7 +178,7 @@ def template_aps(rlz,fdlm,fBlm,fcl,W,olmax=2048,klist=['TT','TE','EE','EB'],**kw
             np.savetxt(fcl[k][i],np.array((clbb,cldd,clbd)).T)
 
 
-            
+'''
 def compute_coeff(rlz,fdlm,fblm,frho,W,olmax=1024,klist=['TT','TE','EE','EB']):
 
     npix = len(W)
@@ -188,39 +188,35 @@ def compute_coeff(rlz,fdlm,fblm,frho,W,olmax=1024,klist=['TT','TE','EE','EB']):
     vec = np.zeros((len(rlz),len(klist),olmax+1))
     mat = np.zeros((len(rlz),len(klist),len(klist),olmax+1))
     
-    #bb = 0.
-    #mvec = np.zeros((len(klist),olmax+1))
-    #mmat = np.zeros((len(klist),len(klist),olmax+1))
     for ii, i in enumerate(tqdm.tqdm(rlz,ncols=100,desc='compute coeff')):
         
         dalm = {}
     
         for k in klist:
             dalm[k] = pickle.load(open(fdlm[k][i],"rb"))[0:olmax+1,0:olmax+1]
-            dalm[k] = curvedsky.utils.mulwin_spin(nside,olmax,olmax,2,0*dalm[k],dalm[k],W)[1]
+            dalm[k] = curvedsky.utils.mulwin_spin( 0*dalm[k], dalm[k], W )[1]
         
         Balm = pickle.load(open(fblm[i],"rb"))[0:olmax+1,0:olmax+1]
-        wBlm = curvedsky.utils.mulwin_spin(nside,olmax,olmax,2,0*Balm,Balm,W)[1]
+        wBlm = curvedsky.utils.mulwin_spin( 0*Balm, Balm, W )[1]
         cbb[ii,:] = curvedsky.utils.alm2cl(olmax,wBlm)
-        #bb += curvedsky.utils.alm2cl(olmax,wBlm)/len(rlz)
         
         for ki, k0 in enumerate(klist):
             vec[ii,ki,:] = curvedsky.utils.alm2cl(olmax,dalm[k0],wBlm)
-            #mvec[ki,:] += curvedsky.utils.alm2cl(olmax,dalm[k0],wBlm)/len(rlz)
             for kj, k1 in enumerate(klist):
+                if ki>kj: continue
                 mat[ii,ki,kj,:] = curvedsky.utils.alm2cl(olmax,dalm[k0],dalm[k1])
-                #mmat[ki,kj,:] += curvedsky.utils.alm2cl(olmax,dalm[k0],dalm[k1])/len(rlz)
+                mat[ii,kj,ki,:] = mat[ii,ki,kj,:]
     
     bb, mvec, mmat = np.mean(cbb,axis=0),  np.mean(vec,axis=0),  np.mean(mat,axis=0)
+    print(np.shape(bb),np.shape(mvec),np.shape(mmat))
 
-    # compute correlation coefficients
-    rho = np.zeros(olmax+1)
-    for l in range(2,olmax):
-        rho[l] = np.dot(mvec[:,l],np.dot(np.linalg.inv(mmat[:,:,l]),mvec[:,l]))
+    # compute correlation coefficients (need to remove ith realization)
+    rho = np.array([ np.dot(mvec[:,l],np.dot(np.linalg.inv(mmat[:,:,l]),mvec[:,l])) for l in range(2,olmax+1)])
 
     # save to file
     L = np.linspace(0,olmax,olmax+1)
-    np.savetxt(frho,np.array((L,bb,rho)).T)
+    np.savetxt(frho,np.array((L[2:],bb[2:],rho)).T)
+'''      
 
 
 
@@ -243,23 +239,12 @@ def interface(run_del=[],kwargs_ov={},kwargs_cmb={},kwargs_qrec={},kwargs_mass={
     mobj = tools_multitracer.mass_tracer( glob, qobj, **kwargs_mass )
     dobj = init_template( glob.stag+qobj.ltag, mobj.klist, pE.stag, glob.doreal, **kwargs_del )
     
-    # change TT to none filter case
-    #if glob.fltr == 'cinv':
-    #    kwargs_cmb['fltr'] = 'none'
-    #    P = prjlib.analysis_init( freq='com', **kwargs_cmb )
-    #    Qobj = tools_lens.init_qobj( P.stag, P.doreal, **kwargs_qrec )
-    #    qobj.f['TT'] = Qobj.f['TT']
-
     # pre-filtering for CMB phi
     wlk = diag_wiener( qobj.f, glob.kk, dobj.klmin, dobj.klmax, kL=glob.kL, klist=dobj.klist )
 
     # only kcinv for TT is used
     if dobj.kfltr == 'cinv':
         print('does not support kfltr = cinv')
-    #    for k in ['TT']:
-    #        wlk[k] = 1./(1e-30+p.kL[:dobj.klmax+1])
-    #        qobj.f[k].alm = qobj.f[k].walm # replaced with kcinv
-    #        qobj.f[k].mfb = None
 
     # fullsky isotropic noise
     if 'iso' in glob.ntype:
@@ -272,20 +257,21 @@ def interface(run_del=[],kwargs_ov={},kwargs_cmb={},kwargs_qrec={},kwargs_mass={
         template_alm( glob.rlz, dobj.klist, qobj.f, dobj.elmin, dobj.elmax, dobj.klmin, dobj.klmax, pE.fcmb.alms['o']['E'], dobj.falm, wlk, fgalm=mobj.fcklm, olmax=dobj.olmax, **kwargs_ov )
 
     if 'aps' in run_del or 'rho' in run_del:
-        # prepare fullsky idealistic B mode
+        # prepare fullsky idealistic B modes
         kwargs_cmb['t'] = 'id'
         kwargs_cmb['ntype'] = 'cv'
         pid = prjlib.analysis_init(**kwargs_cmb)
-        Wsa, __ = prjlib.window('sa')
-        Wla, __ = prjlib.window('la',ascale=0.)
+        # use overlapped region
+        Wsa = prjlib.window('sa')[0]
+        Wla = prjlib.window('la',ascale=5.)[0] # here, apodized mask is used otherwise the efficiency at edges gets worse
         Wsa *= hp.pixelfunc.ud_grade(Wla,512)
 
     if 'aps' in run_del:
-        # compute lensing template spectrum projected on SAT area #
+        # compute lensing template spectrum projected on SATxLAT area #
         template_aps( glob.rlz, dobj.falm, pid.fcmb.alms['o']['B'], dobj.cl, Wsa, olmax=dobj.olmax, klist=dobj.klist, **kwargs_ov ) # ignore E-to-B leakage
 
-    if 'rho' in run_del:
-        # compute optimal combination weights
-        compute_coeff( glob.rlz, dobj.falm, pid.fcmb.alms['o']['B'], dobj.frho, Wsa, olmax=dobj.olmax, klist=dobj.klist )
+    #if 'rho' in run_del:
+    #    # compute optimal combination weights
+    #    compute_coeff( glob.rlz, dobj.falm, pid.fcmb.alms['o']['B'], dobj.frho, Wsa, olmax=dobj.olmax, klist=dobj.klist )
 
 
