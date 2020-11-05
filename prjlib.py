@@ -449,7 +449,7 @@ def window(t,nside=None,ascale=0.,ep=1e-30):
         w = hp.fitsfunc.read_map(fmask,verbose=False)
 
         if t=='sa':
-            print('SAT mask is further multiplied by hit-count binary')
+            print('The loaded SAT mask is further multiplied by hit-count "binary" (not hit count itself)')
             hit = hitmap(t,512) 
             w[hit==0] = 0
             
@@ -462,7 +462,9 @@ def window(t,nside=None,ascale=0.,ep=1e-30):
         wn[n] = np.average(w**n)
 
     # binary mask
-    m  = w/(w+ep)
+    m = w.copy()
+    m[m!=0.] = 1.
+    #m  = w/(w+ep)
     wn[0] = np.average(m)
 
     return w, wn
