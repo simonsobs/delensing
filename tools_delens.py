@@ -17,7 +17,7 @@ import tools_multitracer
 # Define delensing filenames
 class delens:
 
-    def __init__(self,olmax=2048,elmin=20,elmax=2048,klmin=20,klmax=2048,nside=2048,klist=['TT'],kfltr='',etype=''):
+    def __init__(self,olmax=2048,elmin=20,elmax=2048,klmin=20,klmax=2048,nside=2048,klist=['comb'],kfltr='',etype=''):
 
         conf = misctools.load_config('DELENSING')
 
@@ -25,8 +25,8 @@ class delens:
         self.etype = etype
 
         # kappa type
-        self.klist = klist
-        self.kfltr = kfltr
+        self.klist = klist # list of lensing template
+        self.kfltr = kfltr # this does not work now
 
         #Newton method iteration number for obtaining anti-deflection angle in remapping
         self.nremap  = 3
@@ -49,6 +49,9 @@ class delens:
 
     def fname(self,qtag,mlist,etag,doreal):
 
+        # mlist is the list of mass tracers
+        # self.klist is the list of lensing template. this will be only 'comb'.
+        
         #set directory
         d = prjlib.data_directory()
         ids = prjlib.rlz_index(doreal=doreal)
@@ -80,7 +83,7 @@ def init_template(qtag,mlist,etag,doreal,**kwargs):
 
 
 
-def diag_wiener(pqf,clkk,dlmin,dlmax,kL=None,Al=None,klist=['TT','TE','EE','EB']): #kappa filter (including kappa->phi conversion)
+def diag_wiener(pqf,clkk,dlmin,dlmax,kL=None,Al=None,klist=['comb']): #kappa filter (including kappa->phi conversion)
 
     wlk = {}
 
@@ -88,7 +91,7 @@ def diag_wiener(pqf,clkk,dlmin,dlmax,kL=None,Al=None,klist=['TT','TE','EE','EB']
 
         wlk[k] = np.zeros((dlmax+1))
 
-        if k in ['TT','TE','EE','EB']:
+        if k in ['TT','TE','EE','EB']: # this will be removed in the future version
 
             if Al is None:
                 Nl = np.loadtxt(pqf[k].al,unpack=True)[1]
@@ -127,7 +130,7 @@ def template_alm(rlz,klist,qf,elmin,elmax,klmin,klmax,fElm,fdlm,wlk,fgalm='',olm
             wElm[:elmin,:] = 0.
 
             # load kappa
-            if k in klist_cmb:
+            if k in klist_cmb: # this will be removed in the future release
                 if qf[k].mfb is not None:
                     wplm = wlk[k][:klmax+1,None] * tools_lens.load_klms( qf[k].alm[i], klmax, fmlm=qf[k].mfb[i] )
                 else:
@@ -155,7 +158,7 @@ def template_alm(rlz,klist,qf,elmin,elmax,klmin,klmax,fElm,fdlm,wlk,fgalm='',olm
 
             
             
-def template_aps(rlz,fdlm,fBlm,fcl,W,olmax=2048,klist=['TT','TE','EE','EB'],**kwargs_ov):
+def template_aps(rlz,fdlm,fBlm,fcl,W,olmax=2048,klist=['comb'],**kwargs_ov):
     
     npix = len(W)
     nside = int(np.sqrt(npix/12.))
@@ -178,48 +181,6 @@ def template_aps(rlz,fdlm,fBlm,fcl,W,olmax=2048,klist=['TT','TE','EE','EB'],**kw
             np.savetxt(fcl[k][i],np.array((clbb,cldd,clbd)).T)
 
 
-'''
-def compute_coeff(rlz,fdlm,fblm,frho,W,olmax=1024,klist=['TT','TE','EE','EB']):
-
-    npix = len(W)
-    nside = int(np.sqrt(npix/12.))
-
-    cbb = np.zeros((len(rlz),olmax+1))
-    vec = np.zeros((len(rlz),len(klist),olmax+1))
-    mat = np.zeros((len(rlz),len(klist),len(klist),olmax+1))
-    
-    for ii, i in enumerate(tqdm.tqdm(rlz,ncols=100,desc='compute coeff')):
-        
-        dalm = {}
-    
-        for k in klist:
-            dalm[k] = pickle.load(open(fdlm[k][i],"rb"))[0:olmax+1,0:olmax+1]
-            dalm[k] = curvedsky.utils.mulwin_spin( 0*dalm[k], dalm[k], W )[1]
-        
-        Balm = pickle.load(open(fblm[i],"rb"))[0:olmax+1,0:olmax+1]
-        wBlm = curvedsky.utils.mulwin_spin( 0*Balm, Balm, W )[1]
-        cbb[ii,:] = curvedsky.utils.alm2cl(olmax,wBlm)
-        
-        for ki, k0 in enumerate(klist):
-            vec[ii,ki,:] = curvedsky.utils.alm2cl(olmax,dalm[k0],wBlm)
-            for kj, k1 in enumerate(klist):
-                if ki>kj: continue
-                mat[ii,ki,kj,:] = curvedsky.utils.alm2cl(olmax,dalm[k0],dalm[k1])
-                mat[ii,kj,ki,:] = mat[ii,ki,kj,:]
-    
-    bb, mvec, mmat = np.mean(cbb,axis=0),  np.mean(vec,axis=0),  np.mean(mat,axis=0)
-    print(np.shape(bb),np.shape(mvec),np.shape(mmat))
-
-    # compute correlation coefficients (need to remove ith realization)
-    rho = np.array([ np.dot(mvec[:,l],np.dot(np.linalg.inv(mmat[:,:,l]),mvec[:,l])) for l in range(2,olmax+1)])
-
-    # save to file
-    L = np.linspace(0,olmax,olmax+1)
-    np.savetxt(frho,np.array((L[2:],bb[2:],rho)).T)
-'''      
-
-
-
 def interface(run_del=[],kwargs_ov={},kwargs_cmb={},kwargs_qrec={},kwargs_mass={},kwargs_del={},klist_cmb=['TT','TE','EE','EB']):
 
     freq = kwargs_cmb.pop('freq')
@@ -228,9 +189,8 @@ def interface(run_del=[],kwargs_ov={},kwargs_cmb={},kwargs_qrec={},kwargs_mass={
     if kwargs_del['etype'] == 'id':
         pE = prjlib.analysis_init(t='id',freq='cocom',ntype=kwargs_cmb['ntype'])
 
-    if kwargs_del['etype'] == 'co':
-        #pE = prjlib.analysis_init(t='co',freq='com',fltr='cinv',ntype='base')
-        pE = prjlib.analysis_init(t='co',freq='com',fltr='cinv',ntype=kwargs_cmb['ntype'].replace('_iso',''))
+    if kwargs_del['etype'] in ['co','la']:
+        pE = prjlib.analysis_init(t=kwargs_del['etype'],freq='com',fltr='cinv',ntype=kwargs_cmb['ntype'].replace('_iso',''))
 
     # //// prepare phi //// #
     # define object

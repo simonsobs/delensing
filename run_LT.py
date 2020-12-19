@@ -22,10 +22,11 @@ run_qrec = []
 run_mass = ['comb']
 #run_mass = []
 
-#run_del = ['alm','aps']
-run_del = ['alm','aps','rho']
+run_del = ['alm','aps']
+#run_del = ['alm','aps','rho']
 #run_del = ['rho']
 #run_del = []
+
 
 kwargs_ov   = {\
     'overwrite':True, \
@@ -40,9 +41,9 @@ kwargs_cmb  = {\
     'freq':'com', \
     # fixed for LT
     't':'la', \
-    'ntype':'base_roll50', \
+    #'ntype':'base_roll50', \
     #'ntype':'base_iso_roll50', \
-    #'ntype':'goal_roll50', \
+    'ntype':'goal_roll50', \
     #'ntype':'goal_iso_roll50', \
     'lTmin':500, \
     'lTmax':3000, \
@@ -67,21 +68,35 @@ kwargs_qrec = {\
 
 
 kwargs_mass = {\
-    'lmin':8,\
-    'lmax':2007,\
-    'add_cmb':['TT','TE','EE','EB'],\
+    #//// mass tracers to be combined before lensing template construction ////#
+    #//// cmb tracers ////#
+    #'add_cmb':['TT','TE','EE','EB'], \
+    'add_cmb':[], \
+    #//// galaxy/CIB tracers ////#
+    #'add_gal':np.arange(6), \
+    #'add_gal':[], \
+    #'add_cib':True, \
+    'add_cib':False, \
 }
 
 
 kwargs_del = {\
-    'etype':'co',\
-    #'klist':['TT','TE','EE','EB'],\
-    'klist':['comb'],\
-    #'klist':['ALLid'],\
-    #'kfltr':'cinv',\
-    'kfltr':'none',\
-    'olmax':2048,\
-    'elmin':50\
+    #//// E-mode type for lensing template (co or la) ////#
+    'etype':'co', \
+    #'etype':'la', \
+    #//// minimum/maximum multipole of E modes ////#
+    'elmin':50, \
+    'elmax':2048, \
+    #//// minimum/maximum multipole of mass tracers ////#
+    'klmin':20, \
+    'klmax':2048, \
+    #'klist':['TT','TE','EE','EB'],\ #combining after making individual templates not recommended in the future
+    #//// kappa cinv filter (this does not work now) ////#
+    'kfltr':'none', \
+    #//// list of lensing template (should be comb) ////#
+    'klist':['comb'], \
+    #//// output template maximum multipole ////#
+    'olmax':2048, \
 }
 
 

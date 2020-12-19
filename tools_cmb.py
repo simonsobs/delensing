@@ -488,6 +488,7 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                     # filenames
                     fmap = prjlib.filename_freqs(freqs,t=telescope,ntype=ntype)
  
+                    '''
                     # Temperature
                     cinv_params = {\
                         'chn' : 1, \
@@ -500,17 +501,9 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                         'inl' : inl
                     }
                     cinv(1,pw.rlz,telescope,4096,ntype,fmap,pw.fcmb.alms['o'],pw.lcl,freqs=freqs,**cinv_params,**kwargs_ov)
+                    '''
 
                     # Polarization
-                    cinv_params = {\
-                        'chn' : 6, \
-                        'eps' : [1e-5,.1,.1,.1,.1,0.], \
-                        'lmaxs' : [4096,2048,1024,512,256,20], \
-                        'nsides' : [2048,1024,512,256,128,64], \
-                        'itns' : [100,7,5,3,3,0], \
-                        'ro' : 1, \
-                        'filter' : 'W' \
-                    }
                     cinv_params = {\
                         'chn' : 1, \
                         'eps' : [1e-5], \
@@ -520,7 +513,7 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
                         'ro' : 1, \
                         'filter' : 'W' \
                     }
-                    #cinv(2,pw.rlz,telescope,4096,ntype,fmap,pw.fcmb.alms['o'],pw.lcl,freqs=freqs,**cinv_params,**kwargs_ov)
+                    cinv(2,pw.rlz,telescope,4096,ntype,fmap,pw.fcmb.alms['o'],pw.lcl,freqs=freqs,**cinv_params,**kwargs_ov)
 
 
                 if telescope == 'co':

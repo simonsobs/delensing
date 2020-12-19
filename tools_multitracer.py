@@ -18,7 +18,7 @@ import tools_lens
 class mass_tracer():
     # define object which has parameters and filenames for multitracer analysis
     
-    def __init__( self, glob, qobj, lmin=8, lmax=2007, add_cmb=['TT'], add_gal=np.arange(6), add_cib=True ):
+    def __init__( self, glob, qobj, lmin=8, lmax=2007, add_cmb=['TT','TE','EE','EB'], add_gal=np.arange(6), add_cib=True ):
         
         #lmax = 2007 #For now, set by the lmax in Byenoghee's spectra
         #lmin = 8 #For now, set by the lmin in Byenoghee's spectra

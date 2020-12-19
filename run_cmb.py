@@ -17,7 +17,7 @@ run_cmb = ['calcalm']
 
 
 kwargs_ov   = {\
-    'overwrite':True, \
+    'overwrite':False, \
     'verbose':True \
 }
 
@@ -29,14 +29,14 @@ kwargs_cmb  = {\
     #'t':'co', \
     't':'la', \
     #'t':'sa', \
-    #'ntype':'base_roll50', \
+    'ntype':'base_roll50', \
     #'ntype':'base_iso_roll50', \
     #'ntype':'goal_roll50', \
-    'ntype':'goal_iso_roll50', \
+    #'ntype':'goal_iso_roll50', \
     'lTmin':500, \
     'lTmax':3000, \
-    'fltr':'none', \
-    #'fltr':'cinv', \
+    #'fltr':'none', \
+    'fltr':'cinv', \
     'ascale':5.0, \
 }
 
