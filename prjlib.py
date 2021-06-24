@@ -3,6 +3,7 @@
 # Set up analysis parameters, filenames, arrays, functions                                          #
 #///////////////////////////////////////////////////////////////////////////////////////////////////#
 
+import constants
 import numpy as np
 import healpy as hp
 import sys
@@ -13,7 +14,6 @@ import basic
 import curvedsky
 
 # from cmblensplus/utils/
-import constants
 import cmb as CMB
 import misctools
 
@@ -105,6 +105,9 @@ class cmb:
         for s in ['x']:
             self.scl[s] = d_aps+stag+'_'+s+'.dat'
             self.cl[s]  = [d_aps+'/rlz/cl_'+stag+'_'+s+'_'+x+'.dat' for x in ids]
+        
+        # correlation coefficients with input alms
+        self.rho = [d_aps+'/rlz/rho_'+stag+'_'+x+'.dat' for x in ids]
 
 
 # Define parameters, filename and array

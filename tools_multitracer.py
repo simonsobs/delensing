@@ -139,6 +139,7 @@ def corrcoeff(cross, auto1, auto2):
 
 
 def get_spectra_matrix( mobj ):
+    # currently correlations between galaxies of different z-bins are ignored
     
     lmin = mobj.lmin
     lmax = mobj.lmax
@@ -193,7 +194,6 @@ def get_spectra_matrix( mobj ):
         for j, n1 in mobj.klist_gal.items():
             z = int(j[1])
             cl_matrix[n0,n1,:] = cl_matrix[n1,n0,:] = pad_cls(lmin,lmax,clgI[z,:])
-
 
     # used for weights for coadding
     clnl_matrix = cl_matrix.copy()
@@ -299,7 +299,30 @@ def coadd_kappa_alms(tracer_alms, weights):
     return combined_kappa_alms
 
     
-def calculate_multitracer_weights(spectra_matrix, clkk, lmin):
+def calculate_multitracer_weights(tracer_covariance, tracer_x_phi, lmin):
+    '''
+    This function is only used as a cross check for sim weight. 
+    Calculate Eq.(A8) of http://arxiv.org/abs/1502.05356 or Eq.(12) of https://arxiv.org/pdf/1511.04653.pdf
+    '''
+    num_of_tracers = len(tracer_covariance[:,0,0])
+    num_of_multipoles = len(tracer_covariance[0,0,:])
+    inv_tracer_covariance = np.zeros(tracer_covariance.shape)
+    weight = np.zeros((num_of_tracers, num_of_multipoles))
+
+    for k in range(num_of_multipoles):
+        try:
+            inv_tracer_covariance[:,:,k] = np.linalg.inv(tracer_covariance[:,:,k])
+        except:
+            pass
+
+    for index in range(num_of_tracers):
+        for l in range(lmin,num_of_multipoles):
+            weight[index,l] = np.dot(tracer_x_phi[:,l],inv_tracer_covariance[index,:,l])
+
+    return weight
+
+
+def calculate_multitracer_weights_old(spectra_matrix, clkk, lmin):
     '''
     Calculate the weights in the way described in Blake and Marcel's paper
     '''
@@ -437,7 +460,7 @@ def interface( run=['gen_alm','comb'], kwargs_ov={}, kwargs_cmb={}, kwargs_qrec=
         
         # Calculate the optimal weights to form a multitracer map for delensing
         #signal_covariance, clnl_matrix = get_spectra_matrix( mobj ) # for analytic filter
-        #weight = calculate_multitracer_weights( clnl_matrix, signal_covariance[0,0,:], mobj.lmin ) # for analytic filter
+        #weight = calculate_multitracer_weights( clnl_matrix[1:,1:,:], signal_covariance[0,1:,:], mobj.lmin ) # for analytic filter
         weight = calculate_multitracer_weights_sim( glob, qobj, mobj, mmask=mmask, kmask=kmask, **kwargs_ov )
         
         # loop over realizations to combine mass tracers with the above weight

@@ -16,16 +16,16 @@ import tools_delens
 #run_qrec = ['n0','mean','aps']
 #run_qrec = ['norm','qrec','n0','rdn0','mean','aps','kcinv']
 #run_qrec = ['mean','aps']
-run_qrec = []
+run_qrec = ['norm']
 
 #run_mass = ['gen_alm','comb']
-run_mass = ['comb']
-#run_mass = []
+#run_mass = ['comb']
+run_mass = []
 
-run_del = ['alm','aps']
+#run_del = ['alm','aps']
 #run_del = ['alm','aps','rho']
 #run_del = ['rho']
-#run_del = []
+run_del = []
 
 
 kwargs_ov   = {\
@@ -41,9 +41,9 @@ kwargs_cmb  = {\
     'freq':'com', \
     # fixed for LT
     't':'la', \
-    #'ntype':'base_roll50', \
+    'ntype':'base_roll50', \
     #'ntype':'base_iso_roll50', \
-    'ntype':'goal_roll50', \
+    #'ntype':'goal_roll50', \
     #'ntype':'goal_iso_roll50', \
     'lTmin':500, \
     'lTmax':3000, \
@@ -54,7 +54,8 @@ kwargs_cmb  = {\
 
 
 kwargs_qrec = {\
-    'qlist':['TT','TE','EE','EB'], \
+    'qlist':['TT','TE','EE','EB','MV'], \
+    'qMV':['TT','TE','EE','EB'], \
     'rlmin':300, \
     'rlmax':4096, \
     'nside':2048, \

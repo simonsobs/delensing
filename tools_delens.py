@@ -14,72 +14,117 @@ import tools_lens
 import tools_multitracer
 
 
-# Define delensing filenames
-class delens:
+class lensing_template:
 
-    def __init__(self,olmax=2048,elmin=20,elmax=2048,klmin=20,klmax=2048,nside=2048,klist=['comb'],kfltr='',etype=''):
+    # Define objects containing E and kappa to be combined to form a lensing template
+
+    def __init__(self,mobj,Eobj,olmax=2048,elmin=20,elmax=2048,klmin=20,klmax=2048,nside=2048,kfltr='none'):
 
         conf = misctools.load_config('DELENSING')
 
-        # etype
-        self.etype = etype
+        #//// input E and kappa for this object ////#
+        # E mode
+        self.etag  = Eobj.stag
+        self.fElm  = Eobj.fcmb.alms['o']['E']
+        #self.etype = Eobj.telescope
 
-        # kappa type
-        self.klist = klist # list of lensing template
+        # kappa
+        self.klist = mobj.klist
+        self.fglm  = mobj.fcklm
         self.kfltr = kfltr # this does not work now
 
-        #Newton method iteration number for obtaining anti-deflection angle in remapping
-        self.nremap  = 3
-        
+        #//// for lensing template ////#
+
         # minimum/maximum multipole of E and kappa in lensing template construction
-        self.elmin   = conf.getint('elmin',elmin)
-        self.elmax   = conf.getint('elmax',elmax)
-        self.klmin   = conf.getint('klmin',klmin)
-        self.klmax   = conf.getint('klmax',klmax)
+        self.elmin = conf.getint('elmin',elmin)
+        self.elmax = conf.getint('elmax',elmax)
+        self.klmin = conf.getint('klmin',klmin)
+        self.klmax = conf.getint('klmax',klmax)
 
         # output template
-        self.olmax   = conf.getint('dklmax',olmax)
+        #self.klist = klist # list of lensing template
+        self.olmax = conf.getint('olmax',olmax)
+        self.l     = np.linspace(0,self.olmax,self.olmax+1)
+        self.llist = ['comb']
 
-        #remapping Nside/Npix for lensing template construction / remapping
-        self.nside   = nside
-        self.npix    = 12*self.nside**2
+        # //// was used for remapping, but no longer used ////#
+        # Newton method iteration number for obtaining anti-deflection angle in remapping
+        self.nremap = 3
+        
+        # remapping Nside/Npix for lensing template construction / remapping
+        self.nside  = nside
+        self.npix   = 12*self.nside**2
 
-        self.l  = np.linspace(0,self.olmax,self.olmax+1)
 
-
-    def fname(self,qtag,mlist,etag,doreal):
+    def fname(self,qtag,doreal): # filename for output products
 
         # mlist is the list of mass tracers
         # self.klist is the list of lensing template. this will be only 'comb'.
         
-        #set directory
+        # set directory
         d = prjlib.data_directory()
         ids = prjlib.rlz_index(doreal=doreal)
 
-        # delensing internal tag
+        # filename tag for lensing template
         ltag = 'le'+str(self.elmin)+'-'+str(self.elmax)+'_lk'+str(self.klmin)+'-'+str(self.klmax)
-        ttag = ltag + '_' + self.kfltr + '_' + qtag + '_' + '-'.join(mlist.keys()) + '_' + etag
+        ttag = ltag + '_' + self.kfltr + '_' + qtag + '_' + '-'.join(self.klist.keys()) + '_' + self.etag
 
-        #alm of lensing template B-modes
+        # alm of lensing template B-modes
         self.falm, self.fwlm, self.cl = {}, {}, {}
-        for k in self.klist:
+        for k in self.llist:
             self.falm[k] = [d['del']+'alm/alm_'+k+'_'+ttag+'_'+x+'.pkl' for x in ids]
             self.cl[k]   = [d['del']+'aps/rlz/cl_'+k+'_'+ttag+'_'+x+'.dat' for x in ids]
 
         self.gtag = '_ideal'
 
         # correlation coeff of templates
-        self.frho = d['del'] + 'aps/rho_' + '-'.join(self.klist) + '_' + ttag
+        self.frho = d['del'] + 'aps/rho_' + '-'.join(self.llist) + '_' + ttag
 
 
-
-def init_template(qtag,mlist,etag,doreal,**kwargs):
-    # setup parameters for lensing reconstruction (see cmblensplus/utils/quad_func.py)
-
-    dobj = delens(**kwargs)
-    delens.fname(dobj,qtag,mlist,etag,doreal)
+    # operation to this object
     
-    return dobj
+    def template_alm(self,rlz,wlk,glmax=2008,**kwargs_ov):
+
+        for k in tqdm.tqdm(self.klist,ncols=100,desc='template:'):
+        
+            for i in tqdm.tqdm(rlz,ncols=100,desc='each rlz ('+k+')',leave=False):
+        
+                if misctools.check_path(self.falm[k][i],**kwargs_ov): continue
+            
+                # load E mode
+                wElm = pickle.load(open(self.fElm[i],"rb"))[:self.elmax+1,:self.elmax+1]
+                wElm[:self.elmin,:] = 0.
+                
+                glm = 0.*wElm
+                glm[:glmax,:glmax] = pickle.load(open(self.fglm[i],"rb"))
+                wplm = glm * wlk[k][:self.klmax+1,None]
+                wplm[:self.klmin,:] = 0.
+
+                # construct lensing B-mode template
+                dalm = curvedsky.delens.lensingb( self.olmax, self.elmin, self.elmax, self.klmin, self.klmax, wElm, wplm )
+
+                # save to file
+                pickle.dump((dalm),open(self.falm[k][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
+
+            
+    def template_aps(self,rlz,fBlm,W,**kwargs_ov):
+    
+        for k in tqdm.tqdm(self.klist,ncols=100,desc='template aps'):
+        
+            for i in tqdm.tqdm(rlz,ncols=100,desc='each rlz ('+k+')',leave=False):
+        
+                if misctools.check_path(self.cl[k][i],**kwargs_ov): continue
+            
+                dalm = pickle.load(open(self.falm[k][i],"rb"))[0:self.olmax+1,0:self.olmax+1]
+                wdlm = curvedsky.utils.mulwin_spin(0*dalm,dalm,W)[1]
+            
+                Balm = pickle.load(open(fBlm[i],"rb"))[:self.olmax+1,:self.olmax+1]
+                wBlm = curvedsky.utils.mulwin_spin(0*Balm,Balm,W)[1]
+            
+                clbb = curvedsky.utils.alm2cl(self.olmax,wBlm)
+                cldd = curvedsky.utils.alm2cl(self.olmax,wdlm)
+                clbd = curvedsky.utils.alm2cl(self.olmax,wdlm,wBlm)
+                np.savetxt(self.cl[k][i],np.array((clbb,cldd,clbd)).T)
 
 
 
@@ -116,88 +161,35 @@ def diag_wiener(pqf,clkk,dlmin,dlmax,kL=None,Al=None,klist=['comb']): #kappa fil
     return wlk
 
 
+def init_template(qtag,mobj,Eobj,doreal,**kwargs):
+    # setup parameters for lensing reconstruction (see cmblensplus/utils/quad_func.py)
 
-def template_alm(rlz,klist,qf,elmin,elmax,klmin,klmax,fElm,fdlm,wlk,fgalm='',olmax=2048,glmax=2008,klist_cmb=['TT','TE','EE','EB'],**kwargs_ov):
-
-    for k in tqdm.tqdm(klist,ncols=100,desc='template:'):
+    dobj = lensing_template(mobj,Eobj,**kwargs)
+    dobj.fname(qtag,doreal)
     
-        for i in tqdm.tqdm(rlz,ncols=100,desc='each rlz ('+k+')',leave=False):
-        
-            if misctools.check_path(fdlm[k][i],**kwargs_ov): continue
-            
-            # load E mode
-            wElm = pickle.load(open(fElm[i],"rb"))[:elmax+1,:elmax+1]
-            wElm[:elmin,:] = 0.
-
-            # load kappa
-            if k in klist_cmb: # this will be removed in the future release
-                if qf[k].mfb is not None:
-                    wplm = wlk[k][:klmax+1,None] * tools_lens.load_klms( qf[k].alm[i], klmax, fmlm=qf[k].mfb[i] )
-                else:
-                    wplm = wlk[k][:klmax+1,None] * tools_lens.load_klms( qf[k].alm[i], klmax )
-            
-            elif k == 'ALLid':
-                D = prjlib.data_directory()['root']
-                Glm = np.load( D+'multitracer_forBBgroup/coadded_tracers/combined_phi_alms_noiselessE_mvkappa_simid_'+str(i)+'.npy' )
-                glm = 0.*wElm
-                glm[20:glmax+1,:glmax+1] = curvedsky.utils.lm_healpy2healpix( Glm, glmax )[20:,:]
-                wplm = glm * wlk[k][:klmax+1,None] #* kL[:dlmax+1,None]
-                wplm[:klmin,:] = 0.
-                
-            elif k == 'comb':
-                glm = 0.*wElm
-                glm[:glmax,:glmax] = pickle.load(open(fgalm[i],"rb"))
-                wplm = glm * wlk[k][:klmax+1,None]
-                wplm[:klmin,:] = 0.
-
-            # construct lensing B-mode template
-            dalm = curvedsky.delens.lensingb( olmax, elmin, elmax, klmin, klmax, wElm, wplm )
-
-            # save to file
-            pickle.dump((dalm),open(fdlm[k][i],"wb"),protocol=pickle.HIGHEST_PROTOCOL)
-
-            
-            
-def template_aps(rlz,fdlm,fBlm,fcl,W,olmax=2048,klist=['comb'],**kwargs_ov):
-    
-    npix = len(W)
-    nside = int(np.sqrt(npix/12.))
-    
-    for k in tqdm.tqdm(klist,ncols=100,desc='template aps'):
-        
-        for i in tqdm.tqdm(rlz,ncols=100,desc='each rlz ('+k+')',leave=False):
-        
-            if misctools.check_path(fcl[k][i],**kwargs_ov): continue
-            
-            dalm = pickle.load(open(fdlm[k][i],"rb"))[0:olmax+1,0:olmax+1]
-            wdlm = curvedsky.utils.mulwin_spin(0*dalm,dalm,W)[1]
-            
-            Balm = pickle.load(open(fBlm[i],"rb"))[:olmax+1,:olmax+1]
-            wBlm = curvedsky.utils.mulwin_spin(0*Balm,Balm,W)[1]
-            
-            clbb = curvedsky.utils.alm2cl(olmax,wBlm)
-            cldd = curvedsky.utils.alm2cl(olmax,wdlm)
-            clbd = curvedsky.utils.alm2cl(olmax,wdlm,wBlm)
-            np.savetxt(fcl[k][i],np.array((clbb,cldd,clbd)).T)
+    return dobj
 
 
 def interface(run_del=[],kwargs_ov={},kwargs_cmb={},kwargs_qrec={},kwargs_mass={},kwargs_del={},klist_cmb=['TT','TE','EE','EB']):
 
-    freq = kwargs_cmb.pop('freq')
+    freq  = kwargs_cmb.pop('freq')
+    etype = kwargs_del.pop('etype')
 
     # //// prepare E modes //// #
-    if kwargs_del['etype'] == 'id':
-        pE = prjlib.analysis_init(t='id',freq='cocom',ntype=kwargs_cmb['ntype'])
+    if etype == 'id':
+        # CMB only sim
+        Eobj = prjlib.analysis_init(t=etype,freq='cocom',ntype=kwargs_cmb['ntype'])
 
-    if kwargs_del['etype'] in ['co','la']:
-        pE = prjlib.analysis_init(t=kwargs_del['etype'],freq='com',fltr='cinv',ntype=kwargs_cmb['ntype'].replace('_iso',''))
+    if etype in ['co','la']:
+        # with realistic noise 
+        Eobj = prjlib.analysis_init(t=etype,freq='com',fltr='cinv',ntype=kwargs_cmb['ntype'].replace('_iso',''))
 
     # //// prepare phi //// #
     # define object
     glob = prjlib.analysis_init( freq='com', **kwargs_cmb )
     qobj = tools_lens.init_qobj( glob.stag, glob.doreal, **kwargs_qrec )
     mobj = tools_multitracer.mass_tracer( glob, qobj, **kwargs_mass )
-    dobj = init_template( glob.stag+qobj.ltag, mobj.klist, pE.stag, glob.doreal, **kwargs_del )
+    dobj = init_template( glob.stag+qobj.ltag, mobj, Eobj, glob.doreal, **kwargs_del )
     
     # pre-filtering for CMB phi
     wlk = diag_wiener( qobj.f, glob.kk, dobj.klmin, dobj.klmax, kL=glob.kL, klist=dobj.klist )
@@ -207,16 +199,16 @@ def interface(run_del=[],kwargs_ov={},kwargs_cmb={},kwargs_qrec={},kwargs_mass={
         print('does not support kfltr = cinv')
 
     # fullsky isotropic noise
-    if 'iso' in glob.ntype:
-        for k in dobj.klist:  
-            if k in klist_cmb:
-                qobj.f[k].mfb = None
+    #if 'iso' in glob.ntype:
+    #    for k in dobj.klist:  
+    #        if k in klist_cmb:
+    #            qobj.f[k].mfb = None
    
     # //// compute lensing template alm //// #
     if 'alm' in run_del:
-        template_alm( glob.rlz, dobj.klist, qobj.f, dobj.elmin, dobj.elmax, dobj.klmin, dobj.klmax, pE.fcmb.alms['o']['E'], dobj.falm, wlk, fgalm=mobj.fcklm, olmax=dobj.olmax, **kwargs_ov )
+        dobj.template_alm( glob.rlz, wlk, **kwargs_ov )
 
-    if 'aps' in run_del or 'rho' in run_del:
+    if 'aps' in run_del:
         # prepare fullsky idealistic B modes
         kwargs_cmb['t'] = 'id'
         kwargs_cmb['ntype'] = 'cv'
@@ -226,12 +218,7 @@ def interface(run_del=[],kwargs_ov={},kwargs_cmb={},kwargs_qrec={},kwargs_mass={
         Wla = prjlib.window('la',ascale=5.)[0] # here, apodized mask is used otherwise the efficiency at edges gets worse
         Wsa *= hp.pixelfunc.ud_grade(Wla,512)
 
-    if 'aps' in run_del:
         # compute lensing template spectrum projected on SATxLAT area #
-        template_aps( glob.rlz, dobj.falm, pid.fcmb.alms['o']['B'], dobj.cl, Wsa, olmax=dobj.olmax, klist=dobj.klist, **kwargs_ov ) # ignore E-to-B leakage
-
-    #if 'rho' in run_del:
-    #    # compute optimal combination weights
-    #    compute_coeff( glob.rlz, dobj.falm, pid.fcmb.alms['o']['B'], dobj.frho, Wsa, olmax=dobj.olmax, klist=dobj.klist )
+        dobj.template_aps( glob.rlz, pid.fcmb.alms['o']['B'], Wsa, **kwargs_ov ) # ignore E-to-B leakage
 
 
