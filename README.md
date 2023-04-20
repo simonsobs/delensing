@@ -25,5 +25,6 @@ The main files for the analysis are as follows:
 # Contacts
 
   Toshiya Namikawa (namikawa at slac.stanford.edu)
-  Anton Baleato (a.baleatolizancos@ast.cam.ac.uk)
+  Anton Baleato (a.baleatolizancos at ast.cam.ac.uk)
+  Emilie Hertig (emh83 at cam.ac.uk)
 
