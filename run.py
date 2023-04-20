@@ -11,39 +11,42 @@ import tools_multitracer
 import tools_delens
 
 
+run_cmb = []
 #run_cmb = ['simmap']
 #run_cmb = ['simmap','calcalm']
 #run_cmb = ['calcalm']
-run_cmb = []
+#run_cmb = ['simmap','calcalm'] # No hitmap (we put it manually)
 
-#run_qrec = ['norm','qrec','n0','mean','aps']
-#run_qrec = ['n0','mean','aps']
-#run_qrec = ['norm','qrec','n0','rdn0','mean','aps','kcinv']
+run_qrec = [] # Keywords for qrec_flow
+#run_qrec = ['norm','qrec','n0','rdn0','mean','mean_rlz']
 #run_qrec = ['kcinv']
-run_qrec = []
+#run_qrec = []
 
-run_mass = ['gen_alm','comb']
-#run_mass = []
+#run_mass = ['gen_alm','comb']
+run_mass = []
 
-run_del = ['alm','aps']
+run_del = ['alm']
 #run_del = ['alm','aps','rho']
 #run_del = ['rho']
 #run_del = []
 
+# Change overwrite to False for full runs!
 kwargs_ov   = {\
-    'overwrite':True, \
+    'overwrite':False, \
     'verbose':True \
 }
 
 kwargs_cmb  = {\
     'snmin':1, \
-    'snmax':100, \
+    'snmax':1, \
     #freq: not use for simmap
     'freq':'com', \
     #'t':'co', \
+    #'t':'id', \
     't':'la', \
-    #'ntype':'base_roll50', \
-    'ntype':'base_iso_roll50', \
+    #'ntype':'cv', \
+    'ntype':'goal_roll50', \
+    #'ntype':'base_iso_roll50', \
     'lTmin':500, \
     'lTmax':3000, \
     'fltr':'none', \
@@ -73,7 +76,7 @@ kwargs_mass = {\
 
 
 kwargs_del = {\
-    'etype':'co',\
+    'etype':'la',\
     #'klist':['TT','TE','EE','EB'],\
     'klist':['comb'],\
     #'kfltr':'cinv',\

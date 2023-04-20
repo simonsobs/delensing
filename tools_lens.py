@@ -121,7 +121,7 @@ def aps(fltr,qobj,rlz,fpalm,wn,verbose=True):
 
             # load reconstructed kappa and curl alms
             glm, clm = pickle.load(open(qobj.f[q].alm[i],"rb"))
-            mfg, mfc = pickle.load(open(qobj.f[q].mfb[i],"rb"))
+            mfg, mfc = pickle.load(open(qobj.f[q].mfalm[i],"rb")) # Changed mfb to mfalm
 
             # load kappa
             klm = prjlib.load_input_plm(fpalm[i],qobj.olmax,ktype='k')

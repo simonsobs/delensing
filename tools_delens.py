@@ -236,6 +236,10 @@ def interface(run_del=[],kwargs_ov={},kwargs_cmb={},kwargs_qrec={},kwargs_mass={
         #pE = prjlib.analysis_init(t='co',freq='com',fltr='cinv',ntype='base')
         pE = prjlib.analysis_init(t='co',freq='com',fltr='cinv',ntype=kwargs_cmb['ntype'].replace('_iso',''))
 
+    if kwargs_del['etype'] == 'la': # LAT-only E-modes
+        #pE = prjlib.analysis_init(t='la',freq='com',fltr='cinv',ntype=kwargs_cmb['ntype']) # Computationally expensive!
+        pE = prjlib.analysis_init(t='la',freq='com',fltr='none',ntype=kwargs_cmb['ntype']) # Diagonal filtering
+
     # //// prepare phi //// #
     # define object
     glob = prjlib.analysis_init( freq='com', **kwargs_cmb )

@@ -16,7 +16,7 @@ from mapsims import noise
 import curvedsky as CS
 
 # from cmblensplus/utils/
-import constants
+import constant as constants
 import cmb
 import misctools
 
@@ -105,7 +105,7 @@ def output_hitmap(**kwargs_ov):
 
         if misctools.check_path(f,**kwargs_ov): continue
 
-        s = noise.SONoiseSimulator(nside)
+        s = noise.SONoiseSimulator(nside) # Override hitmap here
         w = s.hitmap[telescope]
     
         hp.fitsfunc.write_map(f,w,overwrite=kwargs_ov['overwrite'])
@@ -274,7 +274,9 @@ class wiener_objects:
         self.invN = np.zeros((tqu,len(freqs),self.npix))
 
         self.W = prjlib.hitmap(t,self.nside) 
+        hp.write_map('/global/cscratch1/sd/emilie_h/cinv_tests/W.png',self.W, overwrite=True)
         self.M, __ = prjlib.window(t,nside=self.nside,ascale=0.)
+        hp.write_map('/global/cscratch1/sd/emilie_h/cinv_tests/M.png',self.M, overwrite=True)
         #if t=='sa': 
         #    self.M = hp.pixelfunc.ud_grade(hp.fitsfunc.read_map('../../data/sodelens/mask/mask_apodized.fits'),self.nside)
         #    self.M = self.M/(self.M+1e-30)
@@ -299,14 +301,20 @@ class wiener_objects:
                 Un = hp.fitsfunc.read_map(fmap[freq].nois[i],field=2,verbose=verbose)
 
                 self.maps[0,ki,:] = self.M * hp.pixelfunc.ud_grade(Qs+Qn,self.nside)/Tcmb
+                print('Freq: ',freq)
+                print('Max total Q map: ',np.max(self.maps[0,ki,:]))
+                #hp.write_map('/global/cscratch1/sd/emilie_h/cinv_tests/Q_map_'+freq+'.png',self.maps[0,ki,:],overwrite=True)
                 self.maps[1,ki,:] = self.M * hp.pixelfunc.ud_grade(Us+Un,self.nside)/Tcmb
+                #hp.write_map('/global/cscratch1/sd/emilie_h/cinv_tests/U_map_'+freq+'.png',self.maps[1,ki,:],overwrite=True)
 
 
     def load_invN(self,Tcmb=2.72e6):  # inv noise covariance
 
         for ki, sigma in enumerate(self.sigma):
-
+            
+            print('Sigma: ',sigma)
             self.invN[0,ki,:] = self.W * (sigma*(np.pi/10800.)/Tcmb)**(-2)
+            #hp.write_map('/global/cscratch1/sd/emilie_h/cinv_tests/invN_Q_'+str(ki)+'.png',self.invN[0,ki,:],overwrite=True)
 
             if self.tqu == 2:
                 self.invN[:,ki,:] *= 2.
@@ -316,7 +324,7 @@ class wiener_objects:
 
 def cinv_core(i,t,wla,wsa,lmax,falm,cl,lTmax=1000,lTcut=100,**kwargs):
 
-    mn  = len(wla.bl[:,0])
+    mn  = len(wla.bl[:,0]) # Number of frequencies
 
     if wla.tqu==1:
         if t == 'la':
@@ -356,8 +364,13 @@ def cinv(tqu,rlz,t,lmax,ntype,fmap,falm,cl,freqs=[],fmapsa='',overwrite=False,ve
 
     # start loop for realizations
     for i in tqdm.tqdm(rlz,ncols=100,desc='cinv'):
+        
+        print('RLZ ',i)
+        print('tqu=',tqu)
+        print('T path check: ',misctools.check_path(falm['T'][i],overwrite=overwrite))
 
-        if misctools.check_path(falm['E'][i],overwrite=overwrite): continue
+        if (tqu == 1 and misctools.check_path(falm['T'][i],overwrite=overwrite)): continue
+        if (tqu == 2 and misctools.check_path(falm['E'][i],overwrite=overwrite)): continue
 
         wiener_objects.load_maps(wla,fmap,i)
         if t=='co':
@@ -387,7 +400,7 @@ def interface(freqs,kwargs_ov={},kwargs_cmb={},run=['map2alm','combfreq','wiener
     ntype = kwargs_cmb['ntype']
 
 
-    if 'hitmap' in run:
+    if 'hitmap' in run: # Don't run this if you want to use new scanning strategy (just use external hitmap)
 
         output_hitmap(**kwargs_ov)
         
