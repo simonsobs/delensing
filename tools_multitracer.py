@@ -338,7 +338,7 @@ def interface( run=['gen_alm','comb'], kwargs_ov={}, kwargs_cmb={}, kwargs_qrec=
                 if misctools.check_path(mobj.fklm[k][i],**kwargs_ov): continue
             
                 # re-ordering l,m to match healpix
-                alms = curvedsky.utils.lm_healpy2healpix( len(tracer_alms[n,:]), tracer_alms[n,:], mobj.lmax )
+                alms = curvedsky.utils.lm_healpy2healpix( tracer_alms[n,:], mobj.lmax, len(tracer_alms[n,:]) )
                 
                 pickle.dump( (alms), open(mobj.fklm[k][i],"wb"), protocol=pickle.HIGHEST_PROTOCOL )
             
@@ -357,12 +357,12 @@ def interface( run=['gen_alm','comb'], kwargs_ov={}, kwargs_cmb={}, kwargs_qrec=
             alms = np.zeros( ( mobj.nkap, mobj.lmax+1, mobj.lmax+1 ), dtype=np.complex )
             
             for k, n in mobj.klist_cmb.items():
-                alms[n,:,:] = tools_lens.load_klms( qobj.f[k].alm[i], mobj.lmax, fmlm = qobj.f[k].mfb[i] )
+                alms[n,:,:] = tools_lens.load_klms( qobj.f[k].alm[i], mobj.lmax, fmlm = qobj.f[k].mfalm[i] )
 
             for k, n in mobj.klist_ext.items():
                 alms[n,:,:] = pickle.load( open(mobj.fklm[k][i],"rb") )
                 if win is not None:
-                    alms[n,:,:] = curvedsky.utils.mulwin( nside, mobj.lmax, mobj.lmax, alms[n,:,:], win**2 )
+                    alms[n,:,:] = curvedsky.utils.mulwin(alms[n,:,:], win**2, nside, mobj.lmax, mobj.lmax) # CMB tracer alms are multiplied by win^2 due to quadratic estimators, so we apply the same treatment to external alms.
                 
             # coadd
             cklms = coadd_kappa_alms( alms, c_array )

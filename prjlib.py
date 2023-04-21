@@ -13,7 +13,7 @@ import basic
 import curvedsky
 
 # from cmblensplus/utils/
-import constants
+import constant as constants # Name changed in latest cmblensplus version
 import cmb as CMB
 import misctools
 
@@ -24,7 +24,7 @@ def data_directory():
     
     direct = {}
 
-    root = '/project/projectdirs/sobs/delensing/'
+    root = '/project/projectdirs/sobs/delensing_new/' # E.H.: changed directory name to delensing_new
     direct['root'] = root
     direct['cls']  = root + 'official/planck_cls/'
     direct['win']  = root + 'mask/'
@@ -53,7 +53,7 @@ def mapres(telescope):
 def rlz_index(doreal=False):
     
     # Index for realizations e.g. 0001
-    ids = [str(i).zfill(4) for i in range(201)]
+    ids = [str(i).zfill(4) for i in range(201)] # E.H.: might have to change this to do less (or more) RLZs
 
     # change 1st index if real data is used
     if doreal: 
@@ -78,12 +78,12 @@ class cmb:
 
         #cmb signal map
         if t=='id': # use LAT signal sim
-            self.lcdm = [d_map+'/cmb_uKCMB_la145_nside'+str(nside)+'_'+x+'.fits' for x in ids]
+            self.lcdm = [d_map+'cmb_uKCMB_la145_nside'+str(nside)+'_'+x+'.fits' for x in ids]
         else:
-            self.lcdm = [d_map+'/cmb_uKCMB_'+t+freq+'_nside'+str(nside)+'_'+x+'.fits' for x in ids]
+            self.lcdm = [d_map+'cmb_uKCMB_'+t+freq+'_nside'+str(nside)+'_'+x+'.fits' for x in ids]
 
         #cmb noise map
-        self.nois = [d_map+'/noise_uKCMB_'+t+freq+'_'+ntype+'_nside'+str(nside)+'_'+x+'.fits' for x in ids]
+        self.nois = [d_map+'noise_uKCMB_'+t+freq+'_'+ntype+'_nside'+str(nside)+'_'+x+'.fits' for x in ids]
 
         #cmb alm/aps
         self.alms = {}
@@ -98,15 +98,16 @@ class cmb:
                     Stag = stag
                 self.alms[s][m] = [d_alm+'/'+s+'_'+m+'_'+Stag+'_'+x+'.pkl' for x in ids]
             self.scl[s] = d_aps+Stag+'_'+s+'.dat'
-            self.cl[s]  = [d_aps+'/rlz/cl_'+Stag+'_'+s+'_'+x+'.dat' for x in ids]
+            self.cl[s]  = [d_aps+'rlz/cl_'+Stag+'_'+s+'_'+x+'.dat' for x in ids]
 
         #for cross spectrum with input alm
         for s in ['x']:
             self.scl[s] = d_aps+stag+'_'+s+'.dat'
-            self.cl[s]  = [d_aps+'/rlz/cl_'+stag+'_'+s+'_'+x+'.dat' for x in ids]
+            self.cl[s]  = [d_aps+'rlz/cl_'+stag+'_'+s+'_'+x+'.dat' for x in ids]
 
 
 # Define parameters, filename and array
+# E.H.: snmin and snmax correspond to RLZ indices
 class analysis:
 
     def __init__(self,t='la',freq='',ntype='base_roll50',fltr='none',lmin=2,snmin=1,snmax=10,lTmin=500,lTmax=3000,ascale=5.):
@@ -143,6 +144,7 @@ class analysis:
 
         # CMB frequency
         self.freq = conf.get('freq',freq)
+        if self.telescope=='id':  self.freq = '145'
   
         # CMB alms filtering
         self.fltr = conf.get('fltr',fltr)
@@ -230,8 +232,8 @@ class analysis:
         self.kL = self.l*(self.l+1)*.5
 
         #loading theoretical cl
-        self.ucl = basic.aps.read_cambcls(self.fucl,self.lmin,self.lmax,5)/constants.Tcmb**2
-        self.lcl = basic.aps.read_cambcls(self.flcl,self.lmin,self.lmax,4,bb=True)/constants.Tcmb**2
+        self.ucl = CMB.read_camb_cls(self.fucl,ftype='scal',output='array')[:,:self.lmax+1]
+        self.lcl = CMB.read_camb_cls(self.flcl,ftype='lens',output='array')[:,:self.lmax+1]
 
         #rename cls
         self.uTT = self.ucl[0,:]
@@ -501,7 +503,7 @@ def load_input_plm(fpalm,lmax,verbose=False,ktype=''):
     # load input phi alms
     alm = np.complex128(hp.fitsfunc.read_alm(fpalm))
     # convert order of (l,m) to healpix format
-    alm = curvedsky.utils.lm_healpy2healpix(len(alm),alm,5100)[:lmax+1,:lmax+1]
+    alm = curvedsky.utils.lm_healpy2healpix(alm,5100,len(alm))[:lmax+1,:lmax+1]
     # convert to kappa alm if required
     if ktype == 'k':
         L  = np.linspace(0,lmax,lmax+1)
